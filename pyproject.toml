@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "e7twin"
+dynamic = ["version"]
+description = "Simulateur et monitoring de la carte Alif Ensemble E7 AppKit (Renode + dashboard web)"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Mathieu Rouet" }]
+dependencies = [
+    "pyelftools>=0.31",
+    "pyyaml>=6.0",
+    "typer>=0.12",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "websockets>=13",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+e7twin = "e7twin.cli:app"
+
+[tool.hatch.version]
+path = "e7twin/__init__.py"
+
+# Le paquet e7twin (y compris e7twin/renode/*, fichiers non-Python compris).
+[tool.hatch.build.targets.wheel]
+packages = ["e7twin"]
+
+# Le modèle de carte vit à la racine du dépôt (board/), source de vérité unique.
+# Dans une wheel (installation non éditable), il est copié dans e7twin/_board/.
+# En mode éditable, board.load() le lit directement dans <dépôt>/board/.
+# Ordre de résolution : voir docs/INTERFACES.md § board.load.
+[tool.hatch.build.targets.wheel.force-include]
+"board" = "e7twin/_board"
+
+[tool.hatch.build.targets.sdist]
+include = ["e7twin", "board", "docs", "tests", "README.md", "CLAUDE.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "renode: nécessite Renode 1.17 (sauté proprement s'il est absent)",
+    "toolchain: nécessite arm-none-eabi-gcc / cbuild (sauté proprement s'ils sont absents)",
+]

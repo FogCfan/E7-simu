@@ -1,0 +1,31 @@
+/* Généré depuis link.ld.in par run_spike.py (adresses issues de board.load()). */
+ENTRY(Reset_Handler)
+MEMORY
+{
+  FLASH (rx)  : ORIGIN = $FLASH_BASE, LENGTH = $FLASH_SIZE
+  RAM   (rwx) : ORIGIN = $RAM_BASE,   LENGTH = $RAM_SIZE
+}
+SECTIONS
+{
+  .text : {
+    KEEP(*(.isr_vector))
+    *(.text*)
+    *(.rodata*)
+    . = ALIGN(4);
+  } > FLASH
+  _sidata = LOADADDR(.data);
+  .data : {
+    _sdata = .;
+    *(.data*)
+    . = ALIGN(4);
+    _edata = .;
+  } > RAM AT> FLASH
+  .bss (NOLOAD) : {
+    _sbss = .;
+    *(.bss*) *(COMMON)
+    . = ALIGN(4);
+    _ebss = .;
+  } > RAM
+  _estack = ORIGIN(RAM) + LENGTH(RAM);
+  /DISCARD/ : { *(.ARM.exidx*) *(.comment) }
+}

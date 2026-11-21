@@ -1,0 +1,187 @@
+// ============================================================================
+// FICHIER GÉNÉRÉ — NE PAS ÉDITER.
+// Source : board/ensemble_e7.yaml ; régénérer avec : python -m e7twin.board --repl
+// Carte : Alif Ensemble E7 AI/ML AppKit (AK-E7-AIML), SoC AE722F80F55D5
+// Point de départ : renode platforms/cpus/alif_ae822fa0e5597bs0.repl (E8 RTSS-HE).
+// ============================================================================
+
+// a32_0 (cortex-a32, 800 MHz) : ABSENT — Renode n'a pas de modèle Cortex-A32 ; cœur inerte en v1.
+// a32_1 (cortex-a32, 800 MHz) : ABSENT — Renode n'a pas de modèle Cortex-A32 ; cœur inerte en v1.
+
+// --- m55_hp : cortex-m55 @ 400 MHz, FPU dp, MVE oui, NPU ethos-u55-256
+cpu_hp: CPU.CortexM @ sysbus
+    cpuType: "cortex-m55"
+    cpuId: 0
+    nvic: nvic_hp
+
+nvic_hp: IRQControllers.NVIC @ {
+    sysbus new Bus.BusPointRegistration { address: 0xe000e000; cpu: cpu_hp }
+}
+    -> cpu_hp@0
+    systickFrequency: 400000000
+
+dwt_hp: Miscellaneous.DWT @ {
+    sysbus new Bus.BusPointRegistration { address: 0xe0001000; cpu: cpu_hp }
+}
+    frequency: 400000000
+
+// --- m55_he : cortex-m55 @ 160 MHz, FPU dp, MVE oui, NPU ethos-u55-128
+cpu_he: CPU.CortexM @ sysbus
+    cpuType: "cortex-m55"
+    cpuId: 1
+    nvic: nvic_he
+
+nvic_he: IRQControllers.NVIC @ {
+    sysbus new Bus.BusPointRegistration { address: 0xe000e000; cpu: cpu_he }
+}
+    -> cpu_he@0
+    systickFrequency: 160000000
+
+dwt_he: Miscellaneous.DWT @ {
+    sysbus new Bus.BusPointRegistration { address: 0xe0001000; cpu: cpu_he }
+}
+    frequency: 160000000
+
+// --- Mémoires
+// itcm_hp (tcm, 256 Ko)  // + alias global sram2
+itcm_hp: Memory.MappedMemory @ {
+    sysbus new Bus.BusPointRegistration { address: 0x00000000; cpu: cpu_hp };
+    sysbus 0x50000000
+}
+    size: 0x00040000
+
+// dtcm_hp (tcm, 1024 Ko)  // + alias global sram3
+dtcm_hp: Memory.MappedMemory @ {
+    sysbus new Bus.BusPointRegistration { address: 0x20000000; cpu: cpu_hp };
+    sysbus 0x50800000
+}
+    size: 0x00100000
+
+// itcm_he (tcm, 256 Ko)  // + alias global sram4
+itcm_he: Memory.MappedMemory @ {
+    sysbus new Bus.BusPointRegistration { address: 0x00000000; cpu: cpu_he };
+    sysbus 0x58000000
+}
+    size: 0x00040000
+
+// dtcm_he (tcm, 256 Ko)  // + alias global sram5
+dtcm_he: Memory.MappedMemory @ {
+    sysbus new Bus.BusPointRegistration { address: 0x20000000; cpu: cpu_he };
+    sysbus 0x58800000
+}
+    size: 0x00040000
+
+// sram0 (sram, 4096 Ko)
+sram0: Memory.MappedMemory @ sysbus 0x02000000
+    size: 0x00400000
+
+// sram1 (sram, 2560 Ko)
+sram1: Memory.MappedMemory @ sysbus 0x08000000
+    size: 0x00280000
+
+// sram9 (sram, 768 Ko)
+sram9: Memory.MappedMemory @ sysbus 0x60000000
+    size: 0x000c0000
+
+// sram6_a (sram, 1024 Ko)
+sram6_a: Memory.MappedMemory @ sysbus 0x62000000
+    size: 0x00100000
+
+// sram6_b (sram, 1024 Ko)
+sram6_b: Memory.MappedMemory @ sysbus 0x62400000
+    size: 0x00100000
+
+// sram7 (sram, 512 Ko)
+sram7: Memory.MappedMemory @ sysbus 0x63000000
+    size: 0x00080000
+
+// sram8 (sram, 2048 Ko)
+sram8: Memory.MappedMemory @ sysbus 0x63200000
+    size: 0x00200000
+
+// mram (mram, 5632 Ko)
+mram: Memory.MappedMemory @ sysbus 0x80000000
+    size: 0x00580000
+
+// ospi_xip (xip, 4096 Ko)
+ospi_xip: Memory.MappedMemory @ sysbus 0xc0000000
+    size: 0x00400000
+
+// --- UART (DesignWare 16550, registres 32 bits) : 0x00-0x3f en NS16550, le reste en stub (<nom>_dw)
+uart0: UART.NS16550 @ sysbus <0x49018000, +0x40>
+    wideRegisters: true
+    -> nvic_hp@124 | nvic_he@124
+
+uart1: UART.NS16550 @ sysbus <0x49019000, +0x40>
+    wideRegisters: true
+    -> nvic_hp@125 | nvic_he@125
+
+uart2: UART.NS16550 @ sysbus <0x4901a000, +0x40>
+    wideRegisters: true
+    -> nvic_hp@126 | nvic_he@126
+
+uart3: UART.NS16550 @ sysbus <0x4901b000, +0x40>
+    wideRegisters: true
+    -> nvic_hp@127 | nvic_he@127
+
+uart4: UART.NS16550 @ sysbus <0x4901c000, +0x40>  // printf
+    wideRegisters: true
+    -> nvic_hp@128 | nvic_he@128
+
+uart5: UART.NS16550 @ sysbus <0x4901d000, +0x40>
+    wideRegisters: true
+    -> nvic_hp@129 | nvic_he@129
+
+uart6: UART.NS16550 @ sysbus <0x4901e000, +0x40>
+    wideRegisters: true
+    -> nvic_hp@130 | nvic_he@130
+
+uart7: UART.NS16550 @ sysbus <0x4901f000, +0x40>
+    wideRegisters: true
+    -> nvic_hp@131 | nvic_he@131
+
+lpuart: UART.NS16550 @ sysbus <0x43008000, +0x40>
+    wideRegisters: true
+    -> nvic_he@45
+
+// --- Non modélisés ici (stubs Python de l'agent 04) :
+//   mhu_a32_m55hp_0_rx     mhu_rx    0x40000000 +0x1000  m55_hp local=true irq m55_hp@33
+//   mhu_m55hp_a32_0_tx     mhu_tx    0x40010000 +0x1000  m55_hp local=true irq m55_hp@34
+//   mhu_a32_m55hp_1_rx     mhu_rx    0x40020000 +0x1000  m55_hp local=true irq m55_hp@35
+//   mhu_m55hp_a32_1_tx     mhu_tx    0x40030000 +0x1000  m55_hp local=true irq m55_hp@36
+//   mhu_secpu_m55hp_0_rx   mhu_rx    0x40040000 +0x1000  m55_hp local=true irq m55_hp@37
+//   mhu_m55hp_secpu_0_tx   mhu_tx    0x40050000 +0x1000  m55_hp local=true irq m55_hp@38
+//   mhu_secpu_m55hp_1_rx   mhu_rx    0x40060000 +0x1000  m55_hp local=true irq m55_hp@39
+//   mhu_m55hp_secpu_1_tx   mhu_tx    0x40070000 +0x1000  m55_hp local=true irq m55_hp@40
+//   mhu_m55he_m55hp_0_rx   mhu_rx    0x40080000 +0x1000  m55_hp local=true irq m55_hp@41
+//   mhu_m55hp_m55he_0_tx   mhu_tx    0x40090000 +0x1000  m55_hp local=true irq m55_hp@42
+//   mhu_m55he_m55hp_1_rx   mhu_rx    0x400a0000 +0x1000  m55_hp local=true irq m55_hp@43
+//   mhu_m55hp_m55he_1_tx   mhu_tx    0x400b0000 +0x1000  m55_hp local=true irq m55_hp@44
+//   mhu_a32_m55he_0_rx     mhu_rx    0x40000000 +0x1000  m55_he local=true irq m55_he@33
+//   mhu_m55he_a32_0_tx     mhu_tx    0x40010000 +0x1000  m55_he local=true irq m55_he@34
+//   mhu_a32_m55he_1_rx     mhu_rx    0x40020000 +0x1000  m55_he local=true irq m55_he@35
+//   mhu_m55he_a32_1_tx     mhu_tx    0x40030000 +0x1000  m55_he local=true irq m55_he@36
+//   mhu_secpu_m55he_0_rx   mhu_rx    0x40040000 +0x1000  m55_he local=true irq m55_he@37
+//   mhu_m55he_secpu_0_tx   mhu_tx    0x40050000 +0x1000  m55_he local=true irq m55_he@38
+//   mhu_secpu_m55he_1_rx   mhu_rx    0x40060000 +0x1000  m55_he local=true irq m55_he@39
+//   mhu_m55he_secpu_1_tx   mhu_tx    0x40070000 +0x1000  m55_he local=true irq m55_he@40
+//   mhu_m55hp_m55he_0_rx   mhu_rx    0x40080000 +0x1000  m55_he local=true irq m55_he@41
+//   mhu_m55he_m55hp_0_tx   mhu_tx    0x40090000 +0x1000  m55_he local=true irq m55_he@42
+//   mhu_m55hp_m55he_1_rx   mhu_rx    0x400a0000 +0x1000  m55_he local=true irq m55_he@43
+//   mhu_m55he_m55hp_1_tx   mhu_tx    0x400b0000 +0x1000  m55_he local=true irq m55_he@44
+//   npu_hp                 ethos-u55 0x400e1000 +0x1000  m55_hp local=true irq m55_hp@55
+//   npu_he                 ethos-u55 0x400e1000 +0x1000  m55_he local=true irq m55_he@55
+//   m55hp_cfg              sysctrl   0x400f0000 +0x14  m55_hp local=true irq -
+
+sysbus:
+    init add:
+        Tag <0x1a010000 0x828> "clkctl_sys"
+        Tag <0x1a602000 0x24> "cgu"
+        Tag <0x1a603000 0x1e0> "pinmux"
+        Tag <0x1a604000 0x44> "aon"
+        Tag <0x1a609000 0x14> "vbat"
+        Tag <0x1a60a000 0x44> "ana"
+        Tag <0x42007000 0x20> "lpgpio_ctrl"
+        Tag <0x43007000 0x24> "m55he_cfg"
+        Tag <0x4902f000 0xbc> "clkctl_per_slv"
+        Tag <0x4903f000 0xb0> "clkctl_per_mst"

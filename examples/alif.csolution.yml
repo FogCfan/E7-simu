@@ -1,0 +1,57 @@
+﻿# Solution des firmwares de reference E7 Twin (agent 07).
+# Copie adaptee de tools/alif_vscode-template (alif.csolution.yml, commit ebbf1513) : memes packs,
+# meme board (DevKit-E7, meme SoC AE722F80F55D5LS que l'AppKit), memes layers, meme cdefault.yml.
+# Seuls les target-types E7 sont conserves. Aucun lien vers tools/.
+solution:
+  created-for: CMSIS-Toolbox@2.12.0
+  cdefault:
+
+  compiler: GCC
+
+  packs:
+    - pack: AlifSemiconductor::Ensemble@2.2.1
+    - pack: ARM::CMSIS@6.1.0
+    - pack: ARM::CMSIS-Compiler@2.1.0
+
+  target-types:
+    - type: DevKit-E7-HE
+      device: Alif Semiconductor::AE722F80F55D5LS:M55_HE
+      board: Alif Semiconductor::DevKit-E7
+      variables:
+        - BoardLayer: $SolutionDir()$/board/devkit-e7/board.clayer.yml
+
+    - type: DevKit-E7-HP
+      device: Alif Semiconductor::AE722F80F55D5LS:M55_HP
+      board: Alif Semiconductor::DevKit-E7
+      variables:
+        - BoardLayer: $SolutionDir()$/board/devkit-e7/board.clayer.yml
+
+  build-types:
+    - type: debug
+      optimize: none
+      debug: on
+      define:
+        - _DEBUG
+    - type: release
+      optimize: speed
+      debug: on
+
+  define:
+    - UNICODE
+    - _UNICODE
+
+  projects:
+    - project: hello_hp/hello_hp.cproject.yml
+      for-context: +DevKit-E7-HP
+    - project: hello_he/hello_he.cproject.yml
+      for-context: +DevKit-E7-HE
+    - project: helium_dot/helium_dot.cproject.yml
+      for-context: +DevKit-E7-HP
+    - project: too_big/too_big.cproject.yml
+      for-context: +DevKit-E7-HE
+    - project: stack_overflow/stack_overflow.cproject.yml
+      for-context: +DevKit-E7-HP
+    - project: dual_core_mhu_hp/dual_core_mhu_hp.cproject.yml
+      for-context: +DevKit-E7-HP
+    - project: dual_core_mhu_he/dual_core_mhu_he.cproject.yml
+      for-context: +DevKit-E7-HE

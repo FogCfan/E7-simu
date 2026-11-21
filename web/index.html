@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>E7 Twin — dashboard</title>
+<link rel="stylesheet" href="vendor/uPlot.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">Aller au contenu</a>
+
+<header class="topbar">
+  <h1>E7 Twin <span id="board-name" class="muted"></span></h1>
+  <div class="controls" role="group" aria-label="Contrôle de la simulation">
+    <button id="btn-start" type="button">▶ Start</button>
+    <button id="btn-pause" type="button">⏸ Pause</button>
+    <button id="btn-reset" type="button">↺ Reset</button>
+    <span id="sim-state" class="badge state-stopped" role="status" aria-live="polite">arrêtée</span>
+    <span id="sim-fake" class="badge fake" hidden>données factices</span>
+    <span id="sim-time" class="muted" title="Temps virtuel">t = 0.0 s</span>
+  </div>
+  <div class="right">
+    <span id="ws-ind" class="ws ws-down" role="status" aria-live="polite"><i aria-hidden="true"></i><span id="ws-text">connexion…</span></span>
+    <button id="btn-theme" type="button" aria-label="Basculer le thème clair/sombre">◐ Thème</button>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist" aria-label="Vues">
+  <button role="tab" id="tab-map" aria-controls="view-map" aria-selected="true" data-view="map">Carte</button>
+  <button role="tab" id="tab-cores" aria-controls="view-cores" aria-selected="false" data-view="cores">Cœurs</button>
+  <button role="tab" id="tab-memory" aria-controls="view-memory" aria-selected="false" data-view="memory">Mémoire</button>
+  <button role="tab" id="tab-timeline" aria-controls="view-timeline" aria-selected="false" data-view="timeline">Timeline</button>
+  <button role="tab" id="tab-compat" aria-controls="view-compat" aria-selected="false" data-view="compat">Compatibilité</button>
+  <button role="tab" id="tab-npu" aria-controls="view-npu" aria-selected="false" data-view="npu">NPU</button>
+</nav>
+
+<main id="main">
+  <div id="error-banner" class="banner" role="alert" hidden></div>
+
+  <section id="view-map" role="tabpanel" aria-labelledby="tab-map">
+    <div class="map-layout">
+      <div class="card map-card">
+        <svg id="map" viewBox="0 0 960 600" role="group" aria-label="Schéma du SoC"></svg>
+        <p class="legend muted">Couleur = charge (cœurs) ou remplissage (mémoires) : <span class="lg lvl-ok">&lt; 70 %</span> <span class="lg lvl-warn">70–85 %</span> <span class="lg lvl-hot">≥ 85 %</span>. Les alias globaux des TCM (sram2…sram5) ne sont pas dessinés. Charge calculée avec CPI = 1 (approximation).</p>
+      </div>
+      <aside id="detail" class="card" aria-live="polite">
+        <h2>Détail</h2>
+        <p class="muted">Cliquer sur un cœur ou une mémoire.</p>
+      </aside>
+    </div>
+  </section>
+
+  <section id="view-cores" role="tabpanel" aria-labelledby="tab-cores" hidden>
+    <div id="core-tabs" class="subtabs" role="tablist" aria-label="Cœurs exécutables"></div>
+    <div id="core-panel">
+      <div class="grid2">
+        <div class="card"><h2>Charge (%) — 60 s glissantes</h2><div id="chart-load" class="chart"></div></div>
+        <div class="card"><h2>MIPS — 60 s glissantes</h2><div id="chart-mips" class="chart"></div></div>
+      </div>
+      <p class="muted">MIPS et charge supposent CPI = 1 (approximation : la charge réelle est généralement plus élevée).</p>
+      <div class="grid2">
+        <div class="card">
+          <h2>Fonctions chaudes <span id="prof-fake" class="badge fake" hidden>données factices</span></h2>
+          <p id="prof-note" class="muted"></p>
+          <table id="prof-table" class="tbl"><thead><tr><th>Fonction</th><th>%</th><th></th></tr></thead><tbody></tbody></table>
+        </div>
+        <div class="card">
+          <h2>Console UART</h2>
+          <pre id="uart" class="console" tabindex="0" aria-label="Console UART du cœur"></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="view-memory" role="tabpanel" aria-labelledby="tab-memory" hidden>
+    <div class="card">
+      <h2>Mémoire par région</h2>
+      <p class="muted">Barre pleine : statique (ELF). Barre claire : watermark pile/tas. Alerte au-delà de 85 %. Pour la MRAM et l'OSPI la taille est celle de la région complète (pas du slot ATOC).</p>
+      <div id="mem-list" class="memlist"></div>
+    </div>
+  </section>
+
+  <section id="view-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden>
+    <div class="card">
+      <h2>Événements</h2>
+      <fieldset class="filters"><legend class="sr">Filtres</legend>
+        <label><input type="checkbox" data-kind="mhu" checked> MHU</label>
+        <label><input type="checkbox" data-kind="fault" checked> Fault</label>
+        <label><input type="checkbox" data-kind="unmapped" checked> Accès non mappé</label>
+      </fieldset>
+      <table id="tl-table" class="tbl"><thead><tr><th>t (s)</th><th>Type</th><th>Cœur</th><th>Détail</th></tr></thead><tbody></tbody></table>
+      <p id="tl-empty" class="muted">Aucun événement pour l'instant.</p>
+    </div>
+  </section>
+
+  <section id="view-compat" role="tabpanel" aria-labelledby="tab-compat" hidden>
+    <div class="card">
+      <h2>Rapport de compatibilité</h2>
+      <form id="check-form" class="inline">
+        <label for="check-image">Image</label>
+        <input id="check-image" type="text" value="hello_hp" list="check-known" autocomplete="off">
+        <datalist id="check-known"></datalist>
+        <button type="submit">Analyser</button>
+      </form>
+      <p id="check-msg" class="muted" role="status"></p>
+      <div id="check-report"></div>
+    </div>
+  </section>
+
+  <section id="view-npu" role="tabpanel" aria-labelledby="tab-npu" hidden>
+    <div class="card">
+      <h2>NPU (Ethos-U55)</h2>
+      <p class="muted">Estimation Vela, non mesurée sur carte.</p>
+      <div class="inline">
+        <label for="npu-select">Rapport</label>
+        <select id="npu-select"></select>
+      </div>
+      <p id="npu-msg" class="muted" role="status"></p>
+      <div id="npu-report"></div>
+    </div>
+  </section>
+</main>
+
+<script src="vendor/uPlot.iife.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

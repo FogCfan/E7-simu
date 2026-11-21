@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # Tests sans outils : les tests marques `toolchain` / `renode` et ceux qui ont besoin des ELF compiles
+  # sont sautes proprement (tests/conftest.py).
+  tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest
+
+  # Optionnel (non bloquant) : installe l'Arm GNU Toolchain 14.3.rel1 et lance les tests `toolchain`
+  # (fixtures ELF generees par tests/fixtures/elfgen.py). La compilation des exemples (cbuild + pack Alif,
+  # licence a accepter par un humain) et Renode ne sont PAS installes ici : les tests qui les exigent sont sautes.
+  toolchain:
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Arm GNU Toolchain 14.3.rel1 (script du depot, SHA-256 verifie)
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File scripts\install_tools.ps1 -SkipCmsisToolbox -SkipRenode -SkipPacks -SkipTemplate
+      - run: python -m pip install -e ".[dev]"
+      - name: Tests toolchain
+        run: python -m pytest -m toolchain -ra
+      - name: e7twin doctor (informatif)
+        run: python -m e7twin.cli doctor
+        continue-on-error: true

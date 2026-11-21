@@ -1,0 +1,246 @@
+# =============================================================================
+# Alif Ensemble E7 AI/ML AppKit (AK-E7-AIML) - modèle de carte
+# SOURCE DE VÉRITÉ UNIQUE (propriétaire : agent 01 « Modèle de carte »).
+# Le .repl Renode, les limites du checker et la vue du dashboard en sont générés.
+#
+# Chaque entrée porte un champ `source:` de la forme "<clé> L<ligne> [commentaire]".
+# <clé> renvoie à la table `sources:` ci-dessous (URL épinglée sur un commit).
+# Un suffixe "(R)" signale une valeur résumée / non lue verbatim : à vérifier.
+# Voir aussi docs/E7_FAITS.md.
+# =============================================================================
+schema: 1
+
+board:
+  name: Alif Ensemble E7 AI/ML AppKit
+  kit: AK-E7-AIML
+  soc: AE722F80F55D5
+  cmsis_device: AE722F80F55D5LS
+  printf_uart: uart4        # UART du printf du SDK (retarget), HP comme HE
+  printf_uart_source: tpl_retarget_hp L46 PRINTF_UART_CONSOLE=4 ; tpl_retarget_he L46 ; dfp_appkit_retarget L46
+
+sources:
+  # alif_ensemble-cmsis-dfp @ e8bd010fa8b0df9781bb15ecf4e2d40dbbac4f99 (main du 2026-11-20, release 2.3.0-rc1)
+  hp_soc: https://github.com/alifsemi/alif_ensemble-cmsis-dfp/blob/e8bd010fa8b0df9781bb15ecf4e2d40dbbac4f99/Device/soc/AE722F80F55D5/include/rtss_hp/soc.h
+  he_soc: https://github.com/alifsemi/alif_ensemble-cmsis-dfp/blob/e8bd010fa8b0df9781bb15ecf4e2d40dbbac4f99/Device/soc/AE722F80F55D5/include/rtss_he/soc.h
+  mem_regions: https://github.com/alifsemi/alif_ensemble-cmsis-dfp/blob/e8bd010fa8b0df9781bb15ecf4e2d40dbbac4f99/Device/soc/AE722F80F55D5/config/app_mem_regions.h
+  soc_features: https://github.com/alifsemi/alif_ensemble-cmsis-dfp/blob/e8bd010fa8b0df9781bb15ecf4e2d40dbbac4f99/Device/soc/AE722F80F55D5/include/soc_features.h
+  pdsc: https://github.com/alifsemi/alif_ensemble-cmsis-dfp/blob/e8bd010fa8b0df9781bb15ecf4e2d40dbbac4f99/AlifSemiconductor.Ensemble.pdsc
+  dfp_appkit_retarget: https://github.com/alifsemi/alif_ensemble-cmsis-dfp/blob/e8bd010fa8b0df9781bb15ecf4e2d40dbbac4f99/Boards/AppKit-e7-aiml/Examples/M55_HP/Blinky/RTE/Services/AE722F80F55D5LS_M55_HP/retarget_config.h
+  # alif_vscode-template @ ebbf1513edaeffad912407543fe09da3c7ec9700
+  tpl_retarget_hp: https://github.com/alifsemi/alif_vscode-template/blob/ebbf1513edaeffad912407543fe09da3c7ec9700/hello/RTE/Services/AE722F80F55D5LS_M55_HP/retarget_config.h
+  tpl_retarget_he: https://github.com/alifsemi/alif_vscode-template/blob/ebbf1513edaeffad912407543fe09da3c7ec9700/hello/RTE/Services/AE722F80F55D5LS_M55_HE/retarget_config.h
+  atoc_json: https://github.com/alifsemi/alif_vscode-template/blob/main/.alif/M55_HP_HE_mram_cfg.json
+  # renode/renode @ c38ac3babcd38a7144b9498e3ca4c2226b76aa37 (plateforme E8 RTSS-HE, point de départ du .repl)
+  renode_e8: https://github.com/renode/renode/blob/c38ac3babcd38a7144b9498e3ca4c2226b76aa37/platforms/cpus/alif_ae822fa0e5597bs0.repl
+  # Pack Alif installé localement (tools/packs/AlifSemiconductor/Ensemble/2.2.1) : lignes valables pour cette version, pas pour le commit e8bd010
+  pack221_hp_soc: AlifSemiconductor.Ensemble 2.2.1, Device/soc/AE722F80F55D5/include/rtss_hp/soc.h
+  pack221_sys_utils: AlifSemiconductor.Ensemble 2.2.1, Device/system/source/sys_utils.c
+  series_page: https://alifsemi.com/ensemble-e7-series/
+  armv8m: Arm v8-M Architecture Reference Manual (DDI0553), carte mémoire système architecturale (SCS 0xE000E000, DWT 0xE0001000)
+
+# -----------------------------------------------------------------------------
+# Cœurs. `executable` = exécutable dans le simulateur (Renode n'a pas de Cortex-A32).
+# soc_core_id : identifiant SoC (SOC_FEAT_*_CORE_ID), utile pour l'ATOC / SE services.
+# -----------------------------------------------------------------------------
+cores:
+  - {id: a32_0, type: cortex-a32, freq_hz: 800000000, fpu: dp+neon, mve: false, npu: null, executable: false,
+     soc_core_id: 0, source: "soc_features L28 SOC_FEAT_A32_MAX_HZ ; L22 core id ; fpu: series_page (R)"}
+  - {id: a32_1, type: cortex-a32, freq_hz: 800000000, fpu: dp+neon, mve: false, npu: null, executable: false,
+     soc_core_id: 1, source: "soc_features L28 SOC_FEAT_A32_MAX_HZ ; L23 core id ; fpu: series_page (R)"}
+  - {id: m55_hp, type: cortex-m55, freq_hz: 400000000, fpu: dp, mve: true, npu: ethos-u55-256, executable: true,
+     soc_core_id: 2, source: "pdsc L1180 Dclock/Dfpu/Dmve=FP_MVE ; soc_features L27 L21 ; pdsc L1779 NPU 256MACs"}
+  - {id: m55_he, type: cortex-m55, freq_hz: 160000000, fpu: dp, mve: true, npu: ethos-u55-128, executable: true,
+     soc_core_id: 3, source: "pdsc L1181 Dclock/Dfpu/Dmve=FP_MVE ; soc_features L26 L20 ; pdsc L1780 NPU 128MACs"}
+
+# -----------------------------------------------------------------------------
+# Mémoires. kind : tcm | sram | mram | xip.
+# local: true  -> adresse privée du/des cœur(s) de visible_to (TCM vues à 0x0 / 0x20000000).
+# alias_of     -> même stockage physique qu'une autre région (même taille obligatoire).
+# -----------------------------------------------------------------------------
+memories:
+  # TCM locaux (vue privée de chaque M55)
+  - {name: itcm_hp, base: 0x00000000, size: 0x00040000, kind: tcm, visible_to: [m55_hp], local: true, alias_of: null,
+     source: "mem_regions L160 APP_ITCM_BASE, L190 =SRAM2_SIZE ; pdsc L1756 ITCM_HP alias SRAM2"}
+  - {name: dtcm_hp, base: 0x20000000, size: 0x00100000, kind: tcm, visible_to: [m55_hp], local: true, alias_of: null,
+     source: "mem_regions L161 APP_DTCM_BASE, L191 =SRAM3_SIZE ; pdsc L1757 DTCM_HP alias SRAM3"}
+  - {name: itcm_he, base: 0x00000000, size: 0x00040000, kind: tcm, visible_to: [m55_he], local: true, alias_of: null,
+     source: "mem_regions L160, L187 =SRAM4_SIZE ; pdsc L1758 ITCM_HE alias SRAM4"}
+  - {name: dtcm_he, base: 0x20000000, size: 0x00040000, kind: tcm, visible_to: [m55_he], local: true, alias_of: null,
+     source: "mem_regions L161, L188 =SRAM5_SIZE ; pdsc L1759 DTCM_HE alias SRAM5"}
+  # Alias globaux des TCM (adresses système, accessibles par tous les maîtres)
+  - {name: sram2, base: 0x50000000, size: 0x00040000, kind: tcm, visible_to: [a32_0, a32_1, m55_hp, m55_he], local: false, alias_of: itcm_hp,
+     source: "mem_regions L85 L89 ; pdsc L1746 ; soc_features L51-52 HP_ITCM ; visibilité A32 (R)"}
+  - {name: sram3, base: 0x50800000, size: 0x00100000, kind: tcm, visible_to: [a32_0, a32_1, m55_hp, m55_he], local: false, alias_of: dtcm_hp,
+     source: "mem_regions L99 L103 ; pdsc L1747 ; soc_features L54-55 HP_DTCM ; visibilité A32 (R)"}
+  - {name: sram4, base: 0x58000000, size: 0x00040000, kind: tcm, visible_to: [a32_0, a32_1, m55_hp, m55_he], local: false, alias_of: itcm_he,
+     source: "mem_regions L113 L117 ; pdsc L1748 ; soc_features L57-58 HE_ITCM ; visibilité A32 (R)"}
+  - {name: sram5, base: 0x58800000, size: 0x00040000, kind: tcm, visible_to: [a32_0, a32_1, m55_hp, m55_he], local: false, alias_of: dtcm_he,
+     source: "mem_regions L127 L131 ; pdsc L1749 ; soc_features L60-61 HE_DTCM ; visibilité A32 (R)"}
+  # SRAM bulk partagées
+  - {name: sram0, base: 0x02000000, size: 0x00400000, kind: sram, visible_to: [a32_0, a32_1, m55_hp, m55_he], local: false, alias_of: null,
+     source: "mem_regions L57 L61 ; pdsc L1744 ; soc_features L45-46 ; atoc_json A32_STUB loadAddress"}
+  - {name: sram1, base: 0x08000000, size: 0x00280000, kind: sram, visible_to: [a32_0, a32_1, m55_hp, m55_he], local: false, alias_of: null,
+     source: "mem_regions L71 L75 ; pdsc L1745 ; soc_features L48-49 ; visibilité A32 (R)"}
+  - {name: sram9, base: 0x60000000, size: 0x000C0000, kind: sram, visible_to: [a32_0, a32_1, m55_hp, m55_he], local: false, alias_of: null,
+     source: "pdsc L1754 SRAM9 ; absent de app_mem_regions.h ; visibilité par maître (R)"}
+  - {name: sram6_a, base: 0x62000000, size: 0x00100000, kind: sram, visible_to: [a32_0, a32_1, m55_hp, m55_he], local: false, alias_of: null,
+     source: "pdsc L1750 SRAM6_A ; visibilité par maître (R)"}
+  - {name: sram6_b, base: 0x62400000, size: 0x00100000, kind: sram, visible_to: [a32_0, a32_1, m55_hp, m55_he], local: false, alias_of: null,
+     source: "pdsc L1751 SRAM6_B ; visibilité par maître (R)"}
+  - {name: sram7, base: 0x63000000, size: 0x00080000, kind: sram, visible_to: [a32_0, a32_1, m55_hp, m55_he], local: false, alias_of: null,
+     source: "pdsc L1752 SRAM7 ; visibilité par maître (R)"}
+  - {name: sram8, base: 0x63200000, size: 0x00200000, kind: sram, visible_to: [a32_0, a32_1, m55_hp, m55_he], local: false, alias_of: null,
+     source: "pdsc L1753 SRAM8 ; visibilité par maître (R)"}
+  # NVM
+  - {name: mram, base: 0x80000000, size: 0x00580000, kind: mram, visible_to: [a32_0, a32_1, m55_hp, m55_he], local: false, alias_of: null,
+     source: "pdsc L1742 MRAM rx ; soc_features L40-41 SOC_FEAT_MRAM_*"}
+  # Fenêtre XIP OSPI : seule la partie couverte par les slots app est sourcée.
+  - {name: ospi_xip, base: 0xC0000000, size: 0x00400000, kind: xip, visible_to: [a32_0, a32_1, m55_hp, m55_he], local: false, alias_of: null,
+     source: "mem_regions L172-184 (slots OSPI HE+HP) ; taille réelle de la fenêtre XIP (R) à vérifier HRM"}
+
+# Découpage MRAM hors slots ATOC (informatif, utilisé par le checker / dashboard).
+layout:
+  mram_user: {base: 0x80400000, size: 0x00180000, source: "mem_regions L41 L45 APP_MRAM_USER_*"}
+  default_stack_size: {m55_hp: 0x2000, m55_he: 0x2000, source: "mem_regions L144 L151 APP_*_STACK_SIZE"}
+  default_heap_size:  {m55_hp: 0x4000, m55_he: 0x4000, source: "mem_regions L145 L152 APP_*_HEAP_SIZE"}
+
+# -----------------------------------------------------------------------------
+# Slots ATOC (images applicatives par cœur). kind : mram | ospi.
+# -----------------------------------------------------------------------------
+atoc_slots:
+  - {core: m55_he, name: he_app_mram, base: 0x80000000, size: 0x00200000, kind: mram,
+     source: "mem_regions L21 L25 APP_MRAM_HE_* ; atoc_json HE_APP mramAddress"}
+  - {core: m55_hp, name: hp_app_mram, base: 0x80200000, size: 0x00200000, kind: mram,
+     source: "mem_regions L29 L33 APP_MRAM_HP_* ; atoc_json HP_APP mramAddress"}
+  - {core: m55_he, name: he_app_ospi, base: 0xC0000000, size: 0x00200000, kind: ospi,
+     source: "mem_regions L172 L176 APP_OSPI_FLASH_HE_*"}
+  - {core: m55_hp, name: hp_app_ospi, base: 0xC0200000, size: 0x00200000, kind: ospi,
+     source: "mem_regions L180 L184 APP_OSPI_FLASH_HP_*"}
+
+# -----------------------------------------------------------------------------
+# Périphériques. irq : {cœur: numéro NVIC}. local: true = fenêtre privée du cœur
+# (0x40000000-0x401FFFFF : mêmes adresses, blocs différents sur HP et HE).
+# visible_to : cœurs M55 qui voient le bloc (côté A32 : non modélisé).
+# Champs libres (attrs) : link (paire MHU), role, reg_width, renode.
+# -----------------------------------------------------------------------------
+peripherals:
+  # --- UART DesignWare 16550, registres 32 bits (UART_Type, 0x100 octets) ---
+  - {name: uart0, type: uart16550, base: 0x49018000, size: 0x100, irq: {m55_hp: 124, m55_he: 124}, visible_to: [m55_hp, m55_he], reg_width: 4,
+     source: "hp_soc L3285 UART0_BASE, L208 IRQ ; he_soc L3279, L219 ; hp_soc L1835 UART_Type 0x100"}
+  - {name: uart1, type: uart16550, base: 0x49019000, size: 0x100, irq: {m55_hp: 125, m55_he: 125}, visible_to: [m55_hp, m55_he], reg_width: 4,
+     source: "hp_soc L3286, L209 ; he_soc L3280, L220"}
+  - {name: uart2, type: uart16550, base: 0x4901A000, size: 0x100, irq: {m55_hp: 126, m55_he: 126}, visible_to: [m55_hp, m55_he], reg_width: 4,
+     source: "hp_soc L3287, L210 ; he_soc L3281, L221"}
+  - {name: uart3, type: uart16550, base: 0x4901B000, size: 0x100, irq: {m55_hp: 127, m55_he: 127}, visible_to: [m55_hp, m55_he], reg_width: 4,
+     source: "hp_soc L3288, L211 ; he_soc L3282, L222"}
+  - {name: uart4, type: uart16550, base: 0x4901C000, size: 0x100, irq: {m55_hp: 128, m55_he: 128}, visible_to: [m55_hp, m55_he], reg_width: 4, role: printf,
+     source: "hp_soc L3289, L212 ; he_soc L3283, L223 ; printf : tpl_retarget_hp L46"}
+  - {name: uart5, type: uart16550, base: 0x4901D000, size: 0x100, irq: {m55_hp: 129, m55_he: 129}, visible_to: [m55_hp, m55_he], reg_width: 4,
+     source: "hp_soc L3290, L213 ; he_soc L3284, L224"}
+  - {name: uart6, type: uart16550, base: 0x4901E000, size: 0x100, irq: {m55_hp: 130, m55_he: 130}, visible_to: [m55_hp, m55_he], reg_width: 4,
+     source: "hp_soc L3291, L214 ; he_soc L3285, L225"}
+  - {name: uart7, type: uart16550, base: 0x4901F000, size: 0x100, irq: {m55_hp: 131, m55_he: 131}, visible_to: [m55_hp, m55_he], reg_width: 4,
+     source: "hp_soc L3292, L215 ; he_soc L3286, L226"}
+  - {name: lpuart, type: uart16550, base: 0x43008000, size: 0x100, irq: {m55_he: 45}, visible_to: [m55_hp, m55_he], reg_width: 4,
+     source: "he_soc L3244 LPUART_BASE, L138 LPUART_IRQ_IRQn ; hp_soc L3250 (base, pas d'IRQ côté HP) ; même UART_Type"}
+
+  # --- MHU (fenêtres locales, 0x1000 chacune). link = canal ; le TX d'un cœur parle au RX de l'autre. ---
+  # Côté M55-HP
+  - {name: mhu_a32_m55hp_0_rx,   type: mhu_rx, base: 0x40000000, size: 0x1000, irq: {m55_hp: 33}, visible_to: [m55_hp], local: true, link: a32_m55hp_0,
+     source: "hp_soc L3222, L126 ; L1256 MHU_RX_Type 0x1000"}
+  - {name: mhu_m55hp_a32_0_tx,   type: mhu_tx, base: 0x40010000, size: 0x1000, irq: {m55_hp: 34}, visible_to: [m55_hp], local: true, link: m55hp_a32_0,
+     source: "hp_soc L3223, L127 ; L1301 MHU_TX_Type 0x1000"}
+  - {name: mhu_a32_m55hp_1_rx,   type: mhu_rx, base: 0x40020000, size: 0x1000, irq: {m55_hp: 35}, visible_to: [m55_hp], local: true, link: a32_m55hp_1,
+     source: "hp_soc L3224, L128"}
+  - {name: mhu_m55hp_a32_1_tx,   type: mhu_tx, base: 0x40030000, size: 0x1000, irq: {m55_hp: 36}, visible_to: [m55_hp], local: true, link: m55hp_a32_1,
+     source: "hp_soc L3225, L129"}
+  - {name: mhu_secpu_m55hp_0_rx, type: mhu_rx, base: 0x40040000, size: 0x1000, irq: {m55_hp: 37}, visible_to: [m55_hp], local: true, link: secpu_m55hp_0,
+     source: "hp_soc L3226, L130"}
+  - {name: mhu_m55hp_secpu_0_tx, type: mhu_tx, base: 0x40050000, size: 0x1000, irq: {m55_hp: 38}, visible_to: [m55_hp], local: true, link: m55hp_secpu_0,
+     source: "hp_soc L3227, L131"}
+  - {name: mhu_secpu_m55hp_1_rx, type: mhu_rx, base: 0x40060000, size: 0x1000, irq: {m55_hp: 39}, visible_to: [m55_hp], local: true, link: secpu_m55hp_1,
+     source: "hp_soc L3228, L132"}
+  - {name: mhu_m55hp_secpu_1_tx, type: mhu_tx, base: 0x40070000, size: 0x1000, irq: {m55_hp: 40}, visible_to: [m55_hp], local: true, link: m55hp_secpu_1,
+     source: "hp_soc L3229, L133"}
+  - {name: mhu_m55he_m55hp_0_rx, type: mhu_rx, base: 0x40080000, size: 0x1000, irq: {m55_hp: 41}, visible_to: [m55_hp], local: true, link: m55he_m55hp_0,
+     source: "hp_soc L3230, L134"}
+  - {name: mhu_m55hp_m55he_0_tx, type: mhu_tx, base: 0x40090000, size: 0x1000, irq: {m55_hp: 42}, visible_to: [m55_hp], local: true, link: m55hp_m55he_0,
+     source: "hp_soc L3231, L135"}
+  - {name: mhu_m55he_m55hp_1_rx, type: mhu_rx, base: 0x400A0000, size: 0x1000, irq: {m55_hp: 43}, visible_to: [m55_hp], local: true, link: m55he_m55hp_1,
+     source: "hp_soc L3232, L136"}
+  - {name: mhu_m55hp_m55he_1_tx, type: mhu_tx, base: 0x400B0000, size: 0x1000, irq: {m55_hp: 44}, visible_to: [m55_hp], local: true, link: m55hp_m55he_1,
+     source: "hp_soc L3233, L137"}
+  # Côté M55-HE
+  - {name: mhu_a32_m55he_0_rx,   type: mhu_rx, base: 0x40000000, size: 0x1000, irq: {m55_he: 33}, visible_to: [m55_he], local: true, link: a32_m55he_0,
+     source: "he_soc L3217, L126"}
+  - {name: mhu_m55he_a32_0_tx,   type: mhu_tx, base: 0x40010000, size: 0x1000, irq: {m55_he: 34}, visible_to: [m55_he], local: true, link: m55he_a32_0,
+     source: "he_soc L3218, L127"}
+  - {name: mhu_a32_m55he_1_rx,   type: mhu_rx, base: 0x40020000, size: 0x1000, irq: {m55_he: 35}, visible_to: [m55_he], local: true, link: a32_m55he_1,
+     source: "he_soc L3219, L128"}
+  - {name: mhu_m55he_a32_1_tx,   type: mhu_tx, base: 0x40030000, size: 0x1000, irq: {m55_he: 36}, visible_to: [m55_he], local: true, link: m55he_a32_1,
+     source: "he_soc L3220, L129"}
+  - {name: mhu_secpu_m55he_0_rx, type: mhu_rx, base: 0x40040000, size: 0x1000, irq: {m55_he: 37}, visible_to: [m55_he], local: true, link: secpu_m55he_0,
+     source: "he_soc L3221, L130"}
+  - {name: mhu_m55he_secpu_0_tx, type: mhu_tx, base: 0x40050000, size: 0x1000, irq: {m55_he: 38}, visible_to: [m55_he], local: true, link: m55he_secpu_0,
+     source: "he_soc L3222, L131"}
+  - {name: mhu_secpu_m55he_1_rx, type: mhu_rx, base: 0x40060000, size: 0x1000, irq: {m55_he: 39}, visible_to: [m55_he], local: true, link: secpu_m55he_1,
+     source: "he_soc L3223, L132"}
+  - {name: mhu_m55he_secpu_1_tx, type: mhu_tx, base: 0x40070000, size: 0x1000, irq: {m55_he: 40}, visible_to: [m55_he], local: true, link: m55he_secpu_1,
+     source: "he_soc L3224, L133"}
+  - {name: mhu_m55hp_m55he_0_rx, type: mhu_rx, base: 0x40080000, size: 0x1000, irq: {m55_he: 41}, visible_to: [m55_he], local: true, link: m55hp_m55he_0,
+     source: "he_soc L3225, L134"}
+  - {name: mhu_m55he_m55hp_0_tx, type: mhu_tx, base: 0x40090000, size: 0x1000, irq: {m55_he: 42}, visible_to: [m55_he], local: true, link: m55he_m55hp_0,
+     source: "he_soc L3226, L135"}
+  - {name: mhu_m55hp_m55he_1_rx, type: mhu_rx, base: 0x400A0000, size: 0x1000, irq: {m55_he: 43}, visible_to: [m55_he], local: true, link: m55hp_m55he_1,
+     source: "he_soc L3227, L136"}
+  - {name: mhu_m55he_m55hp_1_tx, type: mhu_tx, base: 0x400B0000, size: 0x1000, irq: {m55_he: 44}, visible_to: [m55_he], local: true, link: m55he_m55hp_1,
+     source: "he_soc L3228, L137"}
+
+  # --- NPU Ethos-U55 (fenêtre locale de chaque M55) ---
+  - {name: npu_hp, type: ethos-u55, base: 0x400E1000, size: 0x1000, irq: {m55_hp: 55}, visible_to: [m55_hp], local: true, macs: 256,
+     source: "hp_soc L3236 NPU_HP_BASE, L138 IRQ, L1453 NPU_HP_Type 0x1000 ; pdsc L1779"}
+  - {name: npu_he, type: ethos-u55, base: 0x400E1000, size: 0x1000, irq: {m55_he: 55}, visible_to: [m55_he], local: true, macs: 128,
+     source: "he_soc L3231 NPU_HE_BASE, L149 IRQ ; pdsc L1780"}
+
+  # --- Architectural Cortex-M55 (par cœur) : SCS/NVIC/SysTick et DWT ---
+  - {name: scs_hp, type: nvic, base: 0xE000E000, size: 0x1000, irq: {}, visible_to: [m55_hp], local: true,
+     source: "armv8m SCS ; hp_soc L3337 M55HP_NVIC_S_BASE=0xE000E100 (NVIC = SCS+0x100)"}
+  - {name: scs_he, type: nvic, base: 0xE000E000, size: 0x1000, irq: {}, visible_to: [m55_he], local: true,
+     source: "armv8m SCS ; he_soc L3331 M55HE_NVIC_S_BASE=0xE000E100"}
+  - {name: dwt_hp, type: dwt, base: 0xE0001000, size: 0x1000, irq: {}, visible_to: [m55_hp], local: true,
+     source: "armv8m DWT ; renode_e8 L238 dwt @ 0xe0001000"}
+  - {name: dwt_he, type: dwt, base: 0xE0001000, size: 0x1000, irq: {}, visible_to: [m55_he], local: true,
+     source: "armv8m DWT ; renode_e8 L238"}
+
+  # --- Horloges / PINMUX / power touchés par l'init du SDK (stubs agent 04). size = sizeof(<X>_Type) ---
+  - {name: clkctl_sys, type: sysctrl, base: 0x1A010000, size: 0x828, irq: {}, visible_to: [m55_hp, m55_he],
+     source: "hp_soc L3198, L966 CLKCTL_SYS_Type ; he_soc L3191"}
+  - {name: cgu, type: sysctrl, base: 0x1A602000, size: 0x24, irq: {}, visible_to: [m55_hp, m55_he],
+     source: "hp_soc L3216, L1119 CGU_Type ; he_soc L3211 ; renode_e8 Tag clockctrl"}
+  - {name: pinmux, type: sysctrl, base: 0x1A603000, size: 0x1E0, irq: {}, visible_to: [m55_hp, m55_he],
+     source: "hp_soc L3217, L1133 PINMUX_Type ; he_soc L3212 ; renode_e8 Tag pinctrl (0x1000)"}
+  - {name: aon, type: sysctrl, base: 0x1A604000, size: 0x44, irq: {}, visible_to: [m55_hp, m55_he],
+     source: "hp_soc L3218, L1158 AON_Type ; he_soc L3213 ; renode_e8 Tag clockctrl"}
+  - {name: vbat, type: sysctrl, base: 0x1A609000, size: 0x14, irq: {}, visible_to: [m55_hp, m55_he],
+     source: "hp_soc L3219, L1176 VBAT_Type ; he_soc L3214 ; renode_e8 Tag clockctrl"}
+  - {name: ana, type: sysctrl, base: 0x1A60A000, size: 0x44, irq: {}, visible_to: [m55_hp, m55_he],
+     source: "hp_soc L3220, L1198 ANA_Type ; he_soc L3215"}
+  - {name: lpgpio_ctrl, type: sysctrl, base: 0x42007000, size: 0x20, irq: {}, visible_to: [m55_hp, m55_he],
+     source: "hp_soc L3244, L1593 LPGPIO_CTRL_Type ; he_soc L3238 ; renode_e8 Tag pinctrl"}
+  - {name: m55he_cfg, type: sysctrl, base: 0x43007000, size: 0x24, irq: {}, visible_to: [m55_hp, m55_he],
+     source: "hp_soc L3249, L1765 M55HE_CFG_Type ; he_soc L3243 ; renode_e8 Tag clockctrl"}
+  - {name: m55hp_cfg, type: sysctrl, base: 0x400F0000, size: 0x14, irq: {}, visible_to: [m55_hp], local: true,
+     source: "hp_soc L3238, L1471 M55HP_CFG_Type (absent de he_soc : fenêtre locale HP)"}
+  # --- Compteurs génériques Arm (CNTCR/CNTSR/CNTCV) : ils servent de base de temps aux sys_busy_loop_* du SDK ---
+  - {name: refclk_cnt_ctl, type: counter, base: 0x1A200000, size: 0x10, irq: {}, visible_to: [m55_hp, m55_he], freq_hz: 100000000, role: control,
+     source: "pack221_hp_soc L3199, L973 CNTControlBase_Type ; pack221_sys_utils L34 (CNTCR_EN), L63 REFCLK 100 MHz"}
+  - {name: refclk_cnt_read, type: counter, base: 0x1A210000, size: 0x8, irq: {}, visible_to: [m55_hp, m55_he], freq_hz: 100000000, role: read,
+     source: "pack221_hp_soc L3200, L978 CNTReadBase_Type ; pack221_sys_utils L55 (CNTCVL)"}
+  - {name: s32k_cnt_ctl, type: counter, base: 0x1A400000, size: 0x10, irq: {}, visible_to: [m55_hp, m55_he], freq_hz: 32768, role: control,
+     source: "pack221_hp_soc L3210, L973 ; pack221_sys_utils L87 (CNTCR_EN)"}
+  - {name: s32k_cnt_read, type: counter, base: 0x1A410000, size: 0x8, irq: {}, visible_to: [m55_hp, m55_he], freq_hz: 32768, role: read,
+     source: "pack221_hp_soc L3211, L978 ; pack221_sys_utils L113-118 (CNTCVL) et L124 (32768 Hz : delay_us*32768/1e6)"}
+  - {name: clkctl_per_slv, type: sysctrl, base: 0x4902F000, size: 0xBC, irq: {}, visible_to: [m55_hp, m55_he],
+     source: "hp_soc L3320, L2487 CLKCTL_PER_SLV_Type ; he_soc L3314 ; renode_e8 Tag clockctrl 0xbc"}
+  - {name: clkctl_per_mst, type: sysctrl, base: 0x4903F000, size: 0xB0, irq: {}, visible_to: [m55_hp, m55_he],
+     source: "hp_soc L3329, L2999 CLKCTL_PER_MST_Type ; he_soc L3323 ; renode_e8 Tag clockctrl 0xb0"}
