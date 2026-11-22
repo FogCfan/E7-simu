@@ -11,7 +11,7 @@
     sample: null, hist: {},            // hist[core] = {t:[], load:[], mips:[]}
     uart: {},                          // uart[core] = [lines]
     events: [], seen: new Set(),
-    view: "map", core: null, sel: null, charts: {}, lastT: -1, profTimer: null,
+    tab: "examples", view: "map", core: null, sel: null, charts: {}, lastT: -1, profTimer: null,
   };
 
   // ---------- utilitaires ----------
@@ -35,7 +35,8 @@
   const showError = (msg) => { const b = $("error-banner"); b.textContent = msg; b.hidden = !msg; };
 
   async function api(path, opts) {
-    const r = await fetch(path, opts);
+    let r;
+    try { r = await fetch(path, opts); } catch (_) { throw new Error(T("err_network")); }
     let body = null;
     try { body = await r.json(); } catch (_) { /* corps vide */ }
     if (!r.ok) {
@@ -44,6 +45,86 @@
     }
     return body;
   }
+
+
+  // ---------- langue (FR par défaut, EN en option) ----------
+  const I18N = {
+    fr: {
+      theme: "◐ Thème", theme_aria: "Basculer le thème clair/sombre", skip: "Aller au contenu",
+      tab_examples: "Exemples", tab_import: "Importer", tab_verify: "Vérification", tab_sim: "Simulation",
+      sub_map: "Carte", sub_cores: "Cœurs", sub_memory: "Mémoire", sub_timeline: "Timeline", sub_npu: "NPU",
+      start: "Démarrer", pause: "Pause", reset: "Réinitialiser",
+      state_stopped: "arrêtée", state_running: "en marche", state_paused: "en pause", state_error: "erreur",
+      ex_title: "Exemples", ex_intro: "Choisissez un exemple, vérifiez-le ou simulez-le.",
+      ex_loading: "Chargement des exemples…", ex_none: "Aucun exemple disponible.",
+      ex_built: "compilé", ex_notbuilt: "non compilé", ex_cores: "Cœurs", ex_verify: "Vérifier", ex_simulate: "Simuler",
+      imp_elf_title: "Importer un ELF", imp_drop: "Déposez un fichier .elf ici ou cliquez pour choisir",
+      imp_src_title: "Compiler un main.c", imp_core: "Cœur", imp_name: "Nom", imp_compile: "Compiler",
+      imp_log: "Log de compilation", imp_uploading: "Envoi de « {0} »…", imp_compiling: "Compilation en cours…",
+      imp_ok: "ELF prêt : {0}", imp_failed: "La compilation a échoué.", imp_err_line: "ligne {0}",
+      imp_need_elf: "Choisissez un fichier .elf.", imp_empty_src: "Le code source est vide.",
+      ver_title: "Vérification de compatibilité", ver_none: "Aucune vérification : utilisez « Vérifier » sur un exemple ou un fichier importé.",
+      ver_running: "Vérification de « {0} »…", ver_verdict: "Verdict global", ver_report: "Ouvrir le rapport HTML",
+      ver_rule: "Règle", ver_v: "Verdict", ver_measured: "Mesuré", ver_limit: "Limite", ver_expl: "Explication",
+      ver_regions: "Occupation par région",
+      sim_loading: "Chargement de « {0} » sur {1}…", sim_started: "Simulation démarrée.",
+      err_action: "Action impossible", err_http: "Erreur", err_network: "Serveur injoignable.",
+      sub_display: "Écran", disp_note: "Émulation : image lue dans le framebuffer, sans timing DSI",
+      disp_off: "Écran inactif — le firmware n'a pas encore programmé le contrôleur CDC200",
+      disp_state: "{0}×{1} · format {2} · framebuffer {3} · {4} images/s",
+      accel: "Accéléré", accel_tip: "Saute les périodes de veille : la simulation va bien plus vite que le temps réel, les animations défilent en accéléré",
+      quit: "Quitter", quit_confirm: "Arrêter E7 Twin (simulation et serveur) ?",
+      quit_done: "E7 Twin est arrêté. Vous pouvez fermer cet onglet.",
+      npu_none: "Aucun rapport : lancez `e7twin npu <modele.tflite>`.",
+    },
+    en: {
+      theme: "◐ Theme", theme_aria: "Toggle light/dark theme", skip: "Skip to content",
+      tab_examples: "Examples", tab_import: "Import", tab_verify: "Check", tab_sim: "Simulation",
+      sub_map: "Map", sub_cores: "Cores", sub_memory: "Memory", sub_timeline: "Timeline", sub_npu: "NPU",
+      start: "Start", pause: "Pause", reset: "Reset",
+      state_stopped: "stopped", state_running: "running", state_paused: "paused", state_error: "error",
+      ex_title: "Examples", ex_intro: "Pick an example, check it or simulate it.",
+      ex_loading: "Loading examples…", ex_none: "No example available.",
+      ex_built: "built", ex_notbuilt: "not built", ex_cores: "Cores", ex_verify: "Check", ex_simulate: "Simulate",
+      imp_elf_title: "Import an ELF", imp_drop: "Drop an .elf file here or click to choose",
+      imp_src_title: "Build a main.c", imp_core: "Core", imp_name: "Name", imp_compile: "Build",
+      imp_log: "Build log", imp_uploading: "Uploading “{0}”…", imp_compiling: "Building…",
+      imp_ok: "ELF ready: {0}", imp_failed: "The build failed.", imp_err_line: "line {0}",
+      imp_need_elf: "Choose an .elf file.", imp_empty_src: "The source code is empty.",
+      ver_title: "Compatibility check", ver_none: "No check yet: use “Check” on an example or an imported file.",
+      ver_running: "Checking “{0}”…", ver_verdict: "Overall verdict", ver_report: "Open the HTML report",
+      ver_rule: "Rule", ver_v: "Verdict", ver_measured: "Measured", ver_limit: "Limit", ver_expl: "Explanation",
+      ver_regions: "Usage per region",
+      sim_loading: "Loading “{0}” on {1}…", sim_started: "Simulation started.",
+      err_action: "Action failed", err_http: "Error", err_network: "Server unreachable.",
+      sub_display: "Display", disp_note: "Emulation: image read from the framebuffer, no DSI timing",
+      disp_off: "Display inactive — the firmware has not programmed the CDC200 controller yet",
+      disp_state: "{0}×{1} · format {2} · framebuffer {3} · {4} fps",
+      accel: "Accelerated", accel_tip: "Skips idle periods: the simulation runs much faster than real time, animations play fast-forward",
+      quit: "Quit", quit_confirm: "Stop E7 Twin (simulation and server)?",
+      quit_done: "E7 Twin is stopped. You can close this tab.",
+      npu_none: "No report: run `e7twin npu <model.tflite>`.",
+    },
+  };
+  let LANG = "fr";
+  try { const l = localStorage.getItem("e7twin-lang"); if (l && I18N[l]) LANG = l; } catch (_) { /* ignoré */ }
+  const T = (k, fb) => { const v = I18N[LANG][k]; return v === undefined ? (fb === undefined ? k : fb) : v; };
+  const TF = (k, ...a) => T(k).replace(/\{(\d+)\}/g, (_, i) => a[+i]);
+  function applyLang() {
+    document.documentElement.lang = LANG;
+    document.querySelectorAll("[data-i18n]").forEach((n) => { n.textContent = T(n.dataset.i18n, n.textContent); });
+    document.querySelectorAll("[data-i18n-aria]").forEach((n) => n.setAttribute("aria-label", T(n.dataset.i18nAria)));
+    document.querySelectorAll("[data-i18n-title]").forEach((n) => n.setAttribute("title", T(n.dataset.i18nTitle)));
+    $("btn-lang").textContent = LANG === "fr" ? "EN" : "FR";
+    applyStatus({});
+    if (S.tab === "examples") renderExamples();
+    if (S.lastReport) { clear($("ver-report")); renderVerify(S.lastReport); }
+  }
+  $("btn-lang").addEventListener("click", () => {
+    LANG = LANG === "fr" ? "en" : "fr";
+    try { localStorage.setItem("e7twin-lang", LANG); } catch (_) { /* ignoré */ }
+    applyLang();
+  });
 
   // ---------- thème ----------
   function applyTheme(t) {
@@ -64,35 +145,80 @@
   try { const t = localStorage.getItem("e7twin-theme"); if (t) document.documentElement.setAttribute("data-theme", t); } catch (_) { /* ignoré */ }
 
   // ---------- navigation ----------
-  function showView(v) {
+  function showTab(t) {
+    S.tab = t;
+    document.querySelectorAll("#nav-top [role=tab]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === t)));
+    document.querySelectorAll("main > section").forEach((s) => { s.hidden = s.id !== "view-" + t; });
+    if (t === "examples") loadExamples();
+    if (t === "sim") showView(S.view); else stopProfile();
+  }
+  let dispOn = false, dispInfo = null, dispFrames = 0, dispT0 = 0, dispFps = 0;
+  function renderDisplayState() {
+    const st = $("display-state"); if (!st) return;
+    if (!dispInfo || !dispInfo.enabled) { st.textContent = T("disp_off"); return; }
+    st.textContent = TF("disp_state", dispInfo.width, dispInfo.height, dispInfo.format,
+      "0x" + Number(dispInfo.address).toString(16).toUpperCase(), dispFps.toFixed(1));
+  }
+  async function pollDisplayInfo() {
+    try { const r = await fetch("/api/display"); dispInfo = r.ok ? await r.json() : null; } catch (_) { dispInfo = null; }
+    const img = $("display-img");
+    if (img && dispInfo && dispInfo.width) img.parentElement.style.aspectRatio = dispInfo.width + " / " + dispInfo.height;
+    renderDisplayState();
+  }
+  function nextFrame() {
+    if (!dispOn) return;
+    const img = $("display-img");
+    const again = () => { if (dispOn) setTimeout(nextFrame, 200); };
+    img.onload = () => {
+      dispFrames++; const now = performance.now();
+      if (now - dispT0 >= 1000) { dispFps = dispFrames * 1000 / (now - dispT0); dispFrames = 0; dispT0 = now; renderDisplayState(); }
+      img.hidden = false; again();
+    };
+    img.onerror = () => { img.hidden = true; dispFps = 0; again(); };
+    img.src = "/api/display.png?t=" + Date.now();
+  }
+  function startDisplay() {
+    if (dispOn) return;
+    dispOn = true; dispFrames = 0; dispT0 = performance.now(); dispFps = 0;
+    pollDisplayInfo(); S.dispTimer = setInterval(pollDisplayInfo, 2000); nextFrame();
+  }
+  function stopDisplay() { dispOn = false; clearInterval(S.dispTimer); }
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopDisplay(); else if (S.tab === "sim" && S.view === "display") startDisplay();
+  });
+  function showView(v) {                 // sous-vue de l'onglet Simulation
     S.view = v;
-    document.querySelectorAll("nav.tabs [role=tab]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === v)));
-    document.querySelectorAll("main > section").forEach((s) => { s.hidden = s.id !== "view-" + v; });
+    if (S.tab !== "sim") { showTab("sim"); return; }
+    document.querySelectorAll("#nav-sub [role=tab]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === v)));
+    document.querySelectorAll("#view-sim > section.sub").forEach((s) => { s.hidden = s.id !== "view-" + v; });
     if (v === "cores") renderCoresView();
     if (v === "memory") renderMemory();
-    if (v === "compat") loadKnownImages();
     if (v === "npu") loadNpuList();
+    if (v === "display") startDisplay(); else stopDisplay();
     if (v !== "cores") stopProfile();
   }
-  document.querySelectorAll("nav.tabs [role=tab]").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
+  document.querySelectorAll("#nav-top [role=tab]").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+  document.querySelectorAll("#nav-sub [role=tab]").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
 
   // ---------- contrôle ----------
   async function simAction(a) {
     try { applyStatus(await api("/api/sim/" + a, { method: "POST" })); showError(""); }
-    catch (e) { showError("Action « " + a + " » impossible : " + e.message); }
+    catch (e) { showError(T("err_action") + " « " + a + " » : " + e.message); }
   }
   $("btn-start").addEventListener("click", () => simAction("start"));
   $("btn-pause").addEventListener("click", () => simAction("pause"));
   $("btn-reset").addEventListener("click", () => simAction("reset"));
 
-  const STATE_LABEL = { stopped: "arrêtée", running: "en marche", paused: "en pause", error: "erreur" };
-  function applyStatus(st) {
+    function applyStatus(st) {
     S.status = Object.assign({}, S.status, st);
     const s = S.status.state;
     const b = $("sim-state");
-    b.textContent = STATE_LABEL[s] || s;
+    b.textContent = T("state_" + s, s);
     b.className = "badge state-" + s;
     $("sim-fake").hidden = !S.status.fake;
+    const ck = $("chk-accel");
+    ck.checked = !!S.status.accelerated;
+    ck.disabled = !Object.keys(S.status.images || {}).length;
     $("btn-start").disabled = s === "running";
     $("btn-pause").disabled = s !== "running";
     if (s === "error" && st.message) showError("Erreur de simulation : " + st.message);
@@ -100,8 +226,14 @@
     renderMap();
   }
 
+  $("chk-accel").addEventListener("change", async (e) => {
+    const ck = e.target, want = ck.checked;
+    try { applyStatus(await api("/api/sim/speed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accelerated: want }) })); showError(""); }
+    catch (err) { ck.checked = !want; showError(T("err_action") + " : " + err.message); }
+  });
+
   // ---------- WebSocket ----------
-  let ws = null, retry = 0;
+  let ws = null, retry = 0, quitting = false;
   function setWs(kind, text) {
     $("ws-ind").className = "ws ws-" + kind;
     $("ws-text").textContent = text;
@@ -113,12 +245,26 @@
     ws.onopen = () => { retry = 0; setWs("up", "connecté"); };
     ws.onmessage = (ev) => { try { onMessage(JSON.parse(ev.data)); } catch (e) { console.error(e); } };
     ws.onclose = () => {
+      if (quitting) return;
       const delay = Math.min(10000, 500 * 2 ** retry++);
       setWs("down", "déconnecté — nouvelle tentative dans " + Math.ceil(delay / 1000) + " s");
       setTimeout(connect, delay);
     };
     ws.onerror = () => { try { ws.close(); } catch (_) { /* déjà fermé */ } };
   }
+
+  $("btn-quit").addEventListener("click", async () => {
+    if (!confirm(T("quit_confirm"))) return;
+    try { await fetch("/api/shutdown", { method: "POST" }); } catch (_) { /* serveur déjà arrêté */ }
+    quitting = true;
+    try { ws && ws.close(); } catch (_) { /* déjà fermé */ }
+    document.body.textContent = "";
+    const p = document.createElement("p");
+    p.style.cssText = "font:1.2rem sans-serif;text-align:center;margin:20vh 1rem";
+    p.textContent = T("quit_done");
+    document.body.appendChild(p);
+    window.close();
+  });
 
   function onMessage(m) {
     switch (m.type) {
@@ -428,32 +574,14 @@
 
   // ---------- compatibilité ----------
   const badge = (v, cls = "") => el("span", { class: `badge v-${v} ${cls}` }, v);
-  async function loadKnownImages() {
-    const dl = $("check-known"); clear(dl);
-    const names = new Set(Object.values(S.status.images || {}).map((p) => p.split(/[\\/]/).pop().replace(/\.elf$/, "")));
-    try { await api("/api/check/_"); } catch (e) {
-      const m = /connues : \[(.*)\]/.exec(e.message);
-      if (m) (m[1].match(/'([^']+)'/g) || []).forEach((q) => names.add(q.slice(1, -1)));
-    }
-    names.forEach((n) => dl.appendChild(el("option", { value: n })));
-  }
-  $("check-form").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    const name = $("check-image").value.trim(), out = $("check-report"), msg = $("check-msg");
-    clear(out); msg.textContent = "Analyse de « " + name + " »…";
-    try {
-      renderReport(await api("/api/check/" + encodeURIComponent(name)), out);
-      msg.textContent = "";
-    } catch (e) { msg.textContent = "Échec : " + e.message; }
-  });
   function renderReport(r, out) {
     const head = el("p");
-    head.appendChild(document.createTextNode(`${r.image} · ${r.core} · verdict global `));
+    head.appendChild(document.createTextNode(`${r.image} · ${r.core} · ${T("ver_verdict")} `));
     head.appendChild(badge(r.verdict, "big"));
     out.appendChild(head);
     const t = el("table", { class: "tbl" });
     const hd = el("thead"); const hr = el("tr");
-    ["Règle", "Verdict", "Mesuré", "Limite", "Explication"].forEach((h) => hr.appendChild(el("th", {}, h)));
+    [T("ver_rule"), T("ver_v"), T("ver_measured"), T("ver_limit"), T("ver_expl")].forEach((h) => hr.appendChild(el("th", {}, h)));
     hd.appendChild(hr); t.appendChild(hd);
     const tb = el("tbody");
     r.rules.forEach((x) => {
@@ -466,7 +594,7 @@
       tb.appendChild(tr);
     });
     t.appendChild(tb); out.appendChild(t);
-    out.appendChild(el("h2", {}, "Occupation par région"));
+    out.appendChild(el("h2", {}, T("ver_regions")));
     const list = el("div", { class: "memlist" });
     Object.entries(r.regions_usage || {}).forEach(([name, u]) => {
       const pct = u.pct != null ? u.pct : 100 * u.used_bytes / u.size_bytes;
@@ -482,6 +610,123 @@
     out.appendChild(list);
   }
 
+  // ---------- exemples / import / vérification ----------
+  const plain = (t) => String(t || "").replace(/\*\*(.+?)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1").replace(/^#+\s*/gm, "").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+  const coreLabel = (c) => c.replace("m55_", "M55-").toUpperCase();
+  let EXAMPLES = null;
+  async function loadExamples() {
+    $("ex-msg").textContent = EXAMPLES ? "" : T("ex_loading");
+    try { EXAMPLES = await api("/api/examples"); $("ex-msg").textContent = ""; }
+    catch (e) { $("ex-msg").textContent = T("err_http") + " : " + e.message; return; }
+    renderExamples();
+  }
+  function actionButtons(box, elfs) {      // elfs : {core: chemin}
+    const b1 = el("button", { type: "button" }, T("ex_verify")), b2 = el("button", { type: "button", class: "primary" }, T("ex_simulate"));
+    b1.addEventListener("click", () => verifyElfs(elfs));
+    b2.addEventListener("click", () => simulateElfs(elfs));
+    box.appendChild(b1); box.appendChild(b2);
+  }
+  function renderExamples() {
+    const list = $("ex-list"); clear(list);
+    if (!EXAMPLES) return;
+    if (!EXAMPLES.length) { list.appendChild(el("p", { class: "muted" }, T("ex_none"))); return; }
+    EXAMPLES.forEach((x) => {
+      const card = el("div", { class: "card ex" });
+      card.appendChild(el("h3", {}, x.name));
+      card.appendChild(el("span", { class: "badge " + (x.built ? "v-PASS" : "v-SKIP") }, x.built ? T("ex_built") : T("ex_notbuilt")));
+      card.appendChild(el("p", {}, plain(x.description)));
+      card.appendChild(el("p", { class: "muted" }, T("ex_cores") + " : " + (x.cores || []).map(coreLabel).join(", ")));
+      const row = el("div", { class: "inline" });
+      actionButtons(row, x.elfs || {});
+      row.querySelectorAll("button").forEach((b) => { b.disabled = !x.built; });
+      card.appendChild(row);
+      list.appendChild(card);
+    });
+  }
+
+  async function verifyElfs(elfs) {
+    showTab("verify");
+    const out = $("ver-report"), msg = $("ver-msg"); clear(out); S.lastReport = null;
+    for (const [core, path] of Object.entries(elfs)) {
+      msg.textContent = TF("ver_running", path.split(/[\\/]/).pop());
+      try {
+        const r = await api("/api/check/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ elf: path, core }) });
+        S.lastReport = r; msg.textContent = ""; renderVerify(r);
+      } catch (e) { msg.textContent = T("err_http") + " : " + e.message; return; }
+    }
+  }
+  function renderVerify(r) {
+    const wrap = el("div"); renderReport(r, wrap);
+    if (r.report_url) {
+      const p = el("p"); p.appendChild(el("a", { href: r.report_url, target: "_blank", rel: "noopener" }, T("ver_report")));
+      wrap.insertBefore(p, wrap.children[1] || null);
+    }
+    $("ver-report").appendChild(wrap);
+  }
+
+  async function simulateElfs(elfs) {
+    showTab("sim"); showError("");
+    try {
+      for (const [core, path] of Object.entries(elfs)) {
+        $("sim-hint").textContent = TF("sim_loading", path.split(/[\\/]/).pop(), coreLabel(core));
+        await api("/api/sim/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ core, path }) });
+      }
+      await simAction("start"); $("sim-hint").textContent = T("sim_started");
+    } catch (e) { $("sim-hint").textContent = ""; showError(T("err_http") + " : " + e.message); }
+  }
+
+  // import ELF
+  function importResult(elf, core) {
+    const box = $("imp-result"); clear(box); box.hidden = false;
+    box.appendChild(el("p", {}, TF("imp_ok", elf)));
+    const row = el("div", { class: "inline" });
+    actionButtons(row, { [core]: elf }); box.appendChild(row);
+  }
+  async function uploadElf(file) {
+    const msg = $("imp-msg"); $("imp-result").hidden = true;
+    if (!file) { msg.textContent = T("imp_need_elf"); return; }
+    msg.textContent = TF("imp_uploading", file.name);
+    try {
+      const r = await api("/api/upload?name=" + encodeURIComponent(file.name), { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
+      msg.textContent = ""; importResult(r.elf, r.core_guess || (execCores()[0] || {}).id);
+    } catch (e) { msg.textContent = T("err_http") + " : " + e.message; }
+  }
+  const drop = $("drop");
+  drop.addEventListener("click", () => $("elf-file").click());
+  drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("elf-file").click(); } });
+  drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); uploadElf(e.dataTransfer.files[0]); });
+  $("elf-file").addEventListener("change", (e) => uploadElf(e.target.files[0]));
+
+  // compilation d'un main.c
+  $("src-file").addEventListener("change", async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    $("src-text").value = await f.text();
+    const n = f.name.replace(/\.c$/i, "").replace(/[^A-Za-z0-9_]/g, "_"); if (n) $("src-name").value = n;
+  });
+  $("btn-compile").addEventListener("click", async () => {
+    const msg = $("imp-msg"), errs = $("imp-errors"), logBox = $("imp-log-box");
+    clear(errs); logBox.hidden = true; $("imp-result").hidden = true;
+    const text = $("src-text").value;
+    if (!text.trim()) { msg.textContent = T("imp_empty_src"); return; }
+    msg.textContent = T("imp_compiling"); $("btn-compile").disabled = true;
+    const core = $("src-core").value, name = $("src-name").value.trim() || "main";
+    try {
+      const r = await api("/api/build/source?core=" + encodeURIComponent(core) + "&name=" + encodeURIComponent(name),
+        { method: "POST", headers: { "Content-Type": "text/plain; charset=utf-8" }, body: text });
+      if (r.log) { $("imp-log").textContent = r.log; logBox.hidden = false; }
+      if (r.ok && r.elf) { msg.textContent = ""; importResult(r.elf, r.core_guess || core); }
+      else {
+        msg.textContent = T("imp_failed");
+        const ul = el("ul", { class: "errs" });
+        (r.errors || []).forEach((x) => ul.appendChild(el("li", {}, `${x.file ? String(x.file).split(/[\\/]/).pop() : ""} ${TF("imp_err_line", x.line)}${x.col ? ":" + x.col : ""} — ${x.message}`)));
+        errs.appendChild(ul);
+      }
+    } catch (e) { msg.textContent = T("err_http") + " : " + e.message; }
+    finally { $("btn-compile").disabled = false; }
+  });
+
   // ---------- NPU ----------
   async function loadNpuList() {
     const sel = $("npu-select"), out = $("npu-report"), msg = $("npu-msg");
@@ -489,7 +734,7 @@
     try { list = await api("/api/npu"); } catch (e) { msg.textContent = "Échec : " + e.message; return; }
     clear(sel); clear(out);
     if (!list.length) {
-      msg.textContent = "Aucun rapport : lancez `e7twin npu <modele.tflite>`.";
+      msg.textContent = T("npu_none");
       sel.disabled = true; return;
     }
     msg.textContent = ""; sel.disabled = false;
@@ -544,8 +789,11 @@
       S.core = execCores().length ? execCores()[0].id : null;
       applyStatus(await api("/api/sim/status"));
     } catch (e) { showError("Impossible de charger la carte : " + e.message); }
-    const v = location.hash.slice(1);   // ex. /#cores : lien direct vers une vue
-    if (document.getElementById("view-" + v)) showView(v);
+    const v = location.hash.slice(1);   // ex. /#cores ou /#verify : lien direct vers une vue
+    applyLang();
+    if (document.querySelector(`#nav-sub [data-view="${v}"]`)) showView(v);
+    else if (document.querySelector(`#nav-top [data-tab="${v}"]`)) showTab(v);
+    else showTab("examples");
   }
   init();
 })();

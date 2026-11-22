@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import math
 import random
+import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -70,6 +71,8 @@ class MetricsSource(Protocol):
     def status(self) -> dict: ...
     def load(self, core: str, path: str) -> None: ...
     def profile(self, core: str) -> dict: ...
+    def framebuffer(self) -> dict | None: ...
+    def set_speed(self, accelerated: bool) -> None: ...  # RuntimeError si aucune simulation chargée
 
 
 class FakeSource:
@@ -88,6 +91,7 @@ class FakeSource:
         self._uart = str(self.board.info.get("printf_uart") or "uart")
         self._images: dict[str, str] = {}
         self._state = "stopped"
+        self.accelerated = False
         self._init_run()
 
     # -- état
@@ -133,7 +137,15 @@ class FakeSource:
         cores = {c.id: ("actif" if self._state == "running" else self._state) if c.executable
                  else "non exécuté" for c in self.board.cores}
         return {"state": self._state, "fake": True, "cores": cores,
-                "images": dict(self._images), "t_virtual_s": round(self._t, 4)}
+                "images": dict(self._images), "t_virtual_s": round(self._t, 4),
+                "accelerated": self.accelerated}
+
+    ACCEL_FACTOR = 37  # accéléré : le temps virtuel court ~35-40x plus vite (WFI), comme Renode
+
+    def set_speed(self, accelerated: bool) -> None:
+        if not self._images:
+            raise RuntimeError("aucune simulation chargée")
+        self.accelerated = bool(accelerated)
 
     # -- génération
     def _emit_uart(self, t: float, core: str, text: str) -> None:
@@ -147,7 +159,7 @@ class FakeSource:
     def sample(self) -> Sample:
         if self._state != "running":
             return self._snapshot([], 0.0)
-        rng, dt = self._rng, self.dt
+        rng, dt = self._rng, self.dt * (self.ACCEL_FACTOR if self.accelerated else 1)
         t0 = self._t
         self._t = t1 = t0 + dt
         self._tick += 1
@@ -210,6 +222,13 @@ class FakeSource:
     def events(self) -> list[dict]:
         out, self._ev_q = self._ev_q, []
         return out
+
+    def framebuffer(self) -> dict | None:
+        """Mire synthétique aux dimensions du panneau (`display.panel` du YAML)."""
+        from .framebuffer import test_pattern
+        panel = (self.board.display or {}).get("panel") or {}
+        w, h = int(panel.get("hactive") or 480), int(panel.get("vactive") or 800)
+        return test_pattern(w, h, time.monotonic())
 
     def profile(self, core: str) -> dict:
         c = self.board.core(core)

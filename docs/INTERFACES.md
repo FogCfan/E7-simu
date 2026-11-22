@@ -301,10 +301,20 @@ Le client n'envoie rien sur le WebSocket en v1 ; le pilotage passe par REST.
 | GET | `/api/check/{image:path}` | `Report.to_dict()` ; 404 image inconnue, 400 cœur non déductible du nom, 422 ELF refusé |
 | GET | `/api/npu` | `[{model, file, mtime}, ...]` : rapports `reports/*.npu.json` (`model` = stem, `mtime` = epoch s), du plus récent au plus ancien ; `[]` si aucun |
 | GET | `/api/npu/{stem}` | contenu JSON de `reports/<stem>.npu.json` (`NpuReport.to_dict()`) ; 404 si absent ou `stem` hors `[A-Za-z0-9_.-]` / contenant `..` |
+| GET | `/api/examples` | `[{name, cores: ["m55_hp"\|"m55_he"], description, elf, elfs: {core: chemin}, built}]` : noms/descriptions de `examples/README.md` (tableau ou `nom — description — cœur(s)`), sinon dossiers de `examples/` ; paires `x_hp`/`x_he` regroupées en `x` ; `elf` = 1er ELF de `build/examples/` (ou `null`), `built` = au moins un ELF |
+| POST | `/api/upload?name=<f>.elf` | corps brut `application/octet-stream` (max 32 Mo) → `{id: "uploads/<nom>", name: "<nom>", elf: "build/uploads/<nom>.elf", core_guess: "m55_hp"\|"m55_he"\|null}` ; nom assaini ; **400** si pas ELF 32 bits LE machine ARM (40), trop gros ; `name` vide → nom unique `upload_<AAAAMMJJ_HHMMSS>_<4 hex>` (renvoyé dans `name`) |
+| POST | `/api/build/source?core=m55_hp\|m55_he&name=<nom>` | corps brut = texte UTF-8 de `main.c` (max 1 Mo, pas de multipart) ; écrit `build/uploads/<nom>.c`, appelle `build.build_source` dans un thread (~3 s) → son résultat tel quel `{ok, elf, su_dir, log, errors: [{file, line, col, message}]}` + `name` (nom effectif ; sans `name` : `upload_<horodatage>_<4 hex>`) + `core_guess` si un ELF est produit ; **409** si une compilation de ce nom est déjà en cours ; **400** cœur invalide, corps vide / non UTF-8 / trop gros ; une erreur de compilation reste un 200 avec `ok: false` |
+| POST | `/api/check/run` | corps `{elf, core, npu_report?}` (`elf` sous `build/`, `npu_report` = chemin sous `reports/`) → `Report.to_dict()` + `report_html` (chemin) + `report_url` (`/api/report/<nom>.check.html`) ; **400** chemin hors zone, **404** ELF/rapport/cœur inconnu, **422** ELF refusé |
+| GET | `/api/report/{name}` | `reports/<nom>.check.html` (ou `.json`) ; 404 sinon |
+| — | `POST /api/sim/load` | accepte aussi un chemin relatif au dépôt (ex. `build/uploads/x.elf`) |
 | GET | `/api/uart?n=` | `{"n": n, "uarts": {nom: [lignes]}}` : historique par UART, `n` borné à 200 (`UART_HISTORY`) |
 | GET | `/api/sim/status` | état complet de la source (forme de `status()` ci-dessous) |
 | POST | `/api/sim/start` · `/api/sim/pause` · `/api/sim/reset` | **état complet** (même objet que `GET /api/sim/status`) ; 404 si action inconnue ; **409** si la source lève `RuntimeError` (ex. start sans image chargée, simulation en erreur qui exige un reset) |
 | POST | `/api/sim/load` | corps `{"core": "m55_hp", "path": "..."}` → `{"ok": true}` ; **404** si le cœur est inconnu, **422** si l'image est refusée (ELF invalide, mauvais cœur) |
+| POST | `/api/sim/speed` | JSON `{"accelerated": bool}` → état complet ; temps réel par défaut, accéléré = `Session.set_advance_immediately` (agent 04), temps virtuel ~35-40× plus vite pendant les WFI ; **409** si aucune simulation chargée ; `GET /api/sim/status` expose `accelerated`. Charge = Δinstructions / (fréquence × Δt **virtuel**) donc juste dans les deux modes ; files UART/événements de `SimSource` bornées à 2000, le WS diffuse au plus 200 lignes / 200 événements par tick (les plus récents) |
+| POST | `/api/shutdown` | `{"ok": true}` puis arrêt du serveur ~0,5 s plus tard (exit 0, Renode arrêté) ; **403** hors loopback ; sans `uvicorn.Server` (tests) : ne fait rien d'autre que répondre |
+| GET | `/api/display` | `{enabled, width, height, format, address}` (`enabled:false` + champs null si écran inactif) |
+| GET | `/api/display.png` | image `image/png` (RGB565 → RGB, `Cache-Control: no-store`) ; **404** si écran inactif. `--fake` : mire animée 480×800 (`framebuffer.test_pattern`). `SimSource` : `Session.read_framebuffer()` (agent 04), cache 200 ms (≤ 5 captures/s) |
 | GET | `/api/profile/{core}` | fonctions chaudes (+ lien vers la trace Perfetto) |
 | WS | `/ws` | flux décrit ci-dessus |
 
@@ -336,6 +346,8 @@ class MetricsSource(Protocol):
     def status(self) -> dict: ...
     def load(self, core: str, path: str) -> None: ...   # KeyError : cœur inconnu (→ 404) ; ValueError : image refusée (→ 422)
     def profile(self, core: str) -> dict: ...           # fonctions chaudes ; KeyError/ValueError si cœur inconnu/non exécutable
+    def framebuffer(self) -> dict | None: ...           # {width,height,format:"RGB565",pitch,address,data:bytes} ou None (écran inactif)
+    def set_speed(self, accelerated: bool) -> None: ...  # RuntimeError (-> 409) si aucune simulation chargée
 ```
 
 Forme de `status()` (identique pour `GET /api/sim/status`, les POST `/api/sim/*` et les messages WS

@@ -177,6 +177,7 @@ class Board:
     atoc_slots: tuple[AtocSlot, ...]
     peripherals: tuple[Peripheral, ...]
     layout: dict[str, Any] = field(default_factory=dict)
+    display: dict[str, Any] = field(default_factory=dict)
     info: dict[str, Any] = field(default_factory=dict)
     sources: dict[str, str] = field(default_factory=dict)
 
@@ -230,6 +231,7 @@ class Board:
             "atoc_slots": [s.to_dict() for s in self.atoc_slots],
             "peripherals": [p.to_dict() for p in self.peripherals],
             "layout": _jsonable(self.layout),
+            "display": _jsonable(self.display),
             "sources": dict(self.sources),
         }
 
@@ -403,6 +405,7 @@ def _build(raw: Any, where: str) -> Board:
         atoc_slots=tuple(slots),
         peripherals=tuple(periphs),
         layout=raw.get("layout") or {},
+        display=raw.get("display") or {},
         info=info if isinstance(info, dict) else {},
         sources={str(k): str(v) for k, v in sources.items()},
     )

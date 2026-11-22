@@ -46,9 +46,34 @@ e7twin npu model.tflite                         # (en plus) estimation Vela U55-
   `SKIP` (et le dit).
 - `package` ne flashe **jamais** : il affiche les commandes SETOOLS (`app-gen-toc`, `app-write-mram`) que
   l'humain lance sur le PC relié à la carte. Le package refuse (et supprime ses fichiers) si `check` rend FAIL.
-- Seule la sortie `--fake` de `serve` est complète ; `serve` sans `--fake` utilise Renode (`SimSource`, en cours).
+- `serve` sans `--fake` démarre sans image chargée ; la page (ou l'API `/api/sim/load`) charge un ELF et pilote la simulation Renode (`SimSource`). `--fake` sert de démonstration sans Renode.
+
+## Interface graphique (sans terminal)
+
+Pour les collègues qui n'utilisent pas de terminal :
+
+1. Installation unique : `py -3.14 -m pip install -e ".[dev]"`, puis les outils via `scripts/install_tools.ps1` (voir [`docs/BUILD.md`](docs/BUILD.md)).
+2. Double-clic sur `E7Twin.cmd` à la racine : il lance `py -3.14 -m e7twin.cli serve` et ouvre http://127.0.0.1:8000 dès que le port écoute.
+3. La page a quatre onglets :
+   - **Exemples** : ELF de `build/examples`, dont `load_loop_hp` et `load_loop_he`, qui animent les jauges de charge des cœurs (voir [`examples/README.md`](examples/README.md)) ;
+   - **Importer** : envoi d'un ELF, ou d'un `main.c` compilé côté serveur pour HP ou HE ;
+   - **Vérification** : lance `e7twin check` et donne un lien vers le rapport HTML ;
+   - **Simulation** : chargement dans Renode, démarrage, pause, reset, métriques en direct.
+4. Une bascule FR/EN est disponible dans la page.
+
+Tout tourne en émulation Renode : rien n'est vérifié sur la carte réelle.
 
 Contrats entre modules : [`docs/INTERFACES.md`](docs/INTERFACES.md) · feuille de route : [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+## macOS (non vérifié sur Mac)
+
+Portage en cours, aucun Mac n'a encore servi à le tester. Ce qui suit vient de l'audit de [`docs/MACOS.md`](docs/MACOS.md).
+
+- Installation : `python3 -m pip install -e ".[dev]"` à la place de `py -3.14`.
+- Lanceur : `E7Twin.command` à la racine, pendant de `E7Twin.cmd`. Une fois, dans le Terminal : `chmod +x E7Twin.command`.
+- Il lance `python3 -m e7twin.cli serve` et ouvre http://127.0.0.1:8000 dès que le port écoute.
+- L'installation des outils (`scripts/install_tools.sh`) n'existe pas encore ; elle arrive bientôt. Renode sous macOS reste à valider (voir `E7TWIN_RENODE` dans l'audit).
+- Détails, points ouverts et ce qui reste à tester sur Mac : [`docs/MACOS.md`](docs/MACOS.md).
 
 ## La carte modélisée
 

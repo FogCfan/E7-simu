@@ -6,7 +6,7 @@
     ``renode``    : Renode present.
   Les autres tests ne dependent d'aucun outil.
 - Fixture ``examples_built`` : compile une fois par session les firmwares de reference de ``examples/``
-  (``examples/build_all.ps1``) dans ``build/examples/``. Sautee si cbuild, GCC, les packs ou PowerShell manquent.
+  (``examples/build_all.py``) dans ``build/examples/``. Sautee si cbuild, GCC, les packs manquent.
   Un echec de compilation, lui, est un echec de test (jamais un skip).
 """
 
@@ -41,13 +41,7 @@ def _build_prereqs_missing() -> list[str]:
     """Ce qu'il manque pour compiler les exemples ('' si rien) : outils requis, packs, PowerShell."""
     # Renode (et son .NET embarque) n'est pas necessaire pour compiler
     missing = [n for n in toolchain.missing_required() if "renode" not in n.lower() and ".net" not in n.lower()]
-    if _powershell() is None:
-        missing.append("powershell/pwsh (examples/build_all.ps1)")
     return missing
-
-
-def _powershell() -> str | None:
-    return shutil.which("powershell") or shutil.which("pwsh")
 
 
 def pytest_collection_modifyitems(config, items):
@@ -76,12 +70,11 @@ def examples_built() -> Path:
     missing = _build_prereqs_missing()
     if missing:
         pytest.skip("compilation des exemples impossible, manque : " + ", ".join(missing))
-    cmd = [_powershell(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(EXAMPLES_DIR / "build_all.ps1")]
-    # le script interroge e7twin.toolchain avec le meme interpreteur que pytest
-    cmd += ["-Python", sys.executable, "-PythonVersion", ""]
+    # script multiplateforme, meme interpreteur que pytest
+    cmd = [sys.executable, str(EXAMPLES_DIR / "build_all.py")]
     cp = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if cp.returncode != 0:
-        pytest.fail(f"examples/build_all.ps1 a echoue (code {cp.returncode}) :\n{cp.stdout[-3000:]}\n{cp.stderr[-3000:]}",
+        pytest.fail(f"examples/build_all.py a echoue (code {cp.returncode}) :\n{cp.stdout[-3000:]}\n{cp.stderr[-3000:]}",
                     pytrace=False)
     absent = [n for n in EXAMPLES if not (EXAMPLES_OUT / f"{n}.elf").is_file()]
     if absent:

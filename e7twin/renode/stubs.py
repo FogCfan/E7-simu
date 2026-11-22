@@ -80,6 +80,32 @@ def _mhu_overlay(board: Board, outdir: Path) -> list[str]:
     return L
 
 
+CDC_HW_VER = 0x00010000  # valeur inventée non nulle : le vrai CDC_HW_VER n'est pas sourcé (voir FIDELITE.md)
+
+
+def _display_overlay(board: Board, outdir: Path) -> list[str]:
+    """CDC200 (regfile : le pilote SDK n'attend rien) et DSI (regfile + DSI_PHY_STATUS prêt), depuis `board.display`.
+
+    Lus par l'hôte via `Session.read_framebuffer()` ; aucun pixel n'est émulé ici (pas de balayage ni de mélange).
+    """
+    d = board.display
+    if not d or "controller" not in d or "dsi" not in d:
+        return []
+    cdc, dsi = d["controller"], d["dsi"]
+    regs = cdc["registers"]
+    L: list[str] = []
+    specs = [
+        ("cdc200", cdc, {"FIXED": {regs["hw_ver"]: CDC_HW_VER, regs["lcnt"]: cdc["layers"]}, "READY": {}}),
+        ("dsi", dsi, {"FIXED": {}, "READY": {dsi["registers"]["phy_status"]["offset"]:
+                                             dsi["registers"]["phy_status"]["ready_bits"]}}),
+    ]
+    for name, blk, extra in specs:
+        script = _script_file(name, {"KIND": "regfile", "BLOCK": name, **extra}, outdir)
+        L += [f"{name}: Python.PythonPeripheral @ sysbus 0x{blk['base']:08x}",
+              f"    size: 0x{blk['size']:x}", "    initable: true", f'    filename: "{script.resolve().as_posix()}"', ""]
+    return L
+
+
 def generate(board: Board, outdir: Path) -> str:
     """Texte de l'overlay .repl ; écrit au passage les scripts Python par bloc dans `outdir`."""
     outdir.mkdir(parents=True, exist_ok=True)
@@ -89,6 +115,7 @@ def generate(board: Board, outdir: Path) -> str:
         "",
     ]
     L += _mhu_overlay(board, outdir)
+    L += _display_overlay(board, outdir)
     for p in board.peripherals:
         if p.type == "uart16550":
             # registres DesignWare au-delà du 16550 standard (USR, TFL, SRR, DLF, ...)
@@ -104,7 +131,7 @@ def generate(board: Board, outdir: Path) -> str:
             ]
             continue
         if p.type == "sysctrl" and not p.local:
-            params = {"KIND": "regfile", "BLOCK": p.name, "READY": READY.get(p.name, {})}
+            params = {"KIND": "regfile", "BLOCK": p.name, "READY": READY.get(p.name, {}), "FIXED": {}}
         elif p.type == "counter":
             params = {"KIND": "counter", "BLOCK": p.name, "ROLE": p.attrs["role"],
                       "FREQ": p.attrs["freq_hz"]}

@@ -233,11 +233,31 @@ def mpu_prime(b: boardmod.Board, cpu: str) -> list[str]:
 _LIVE: set["Monitor"] = set()
 
 
+def _kill_tree(proc) -> None:
+    """Tue Renode (et ses enfants sous POSIX : groupe SIGTERM puis SIGKILL). Windows : `kill()`."""
+    if os.name == "nt":
+        proc.kill()
+        return
+    import signal
+    try:
+        pgid = os.getpgid(proc.pid)
+        os.killpg(pgid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        proc.wait(3)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
 def _kill_live() -> None:
     """Filet de sécurité à la sortie de l'interpréteur : aucun Renode orphelin si `close()` n'a pas eu lieu."""
     for m in list(_LIVE):
         try:
-            m.proc.kill()
+            _kill_tree(m.proc)
         except OSError:
             pass
 
@@ -245,14 +265,35 @@ def _kill_live() -> None:
 atexit.register(_kill_live)
 
 
+def format_lost(err: object, exit_code: int | None, journal: Path) -> str:
+    """« connexion au monitor perdue : <err> ; Renode … — journal : <chemin> »."""
+    state = "processus Renode encore vivant" if exit_code is None else f"processus Renode terminé (code {exit_code})"
+    return f"connexion au monitor perdue : {err} ; {state} — journal : {journal}"
+
+
+def _new_journal(port: int, keep: int = 10) -> Path:
+    """build/logs/renode_<AAAAMMJJ_HHMMSS>_<port>.log ; ne garde que les `keep` derniers fichiers."""
+    d = REPO / "build" / "logs"
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / f"renode_{time.strftime('%Y%m%d_%H%M%S')}_{port}.log"
+    for old in sorted(d.glob("renode_*.log"), key=lambda p: p.stat().st_mtime)[:-(keep - 1) or None]:
+        try:
+            old.unlink()
+        except OSError:
+            pass  # encore ouvert par une autre session
+    return path
+
+
 class Monitor:
     """Client du monitor Renode (telnet). `cmd()` renvoie le texte affiché, sans écho ni prompt."""
 
-    def __init__(self, renode: Path, port: int, log: Path) -> None:
+    def __init__(self, renode: Path, port: int, log: Path, journal: Path | None = None) -> None:
         self.port = port
         self.lock = threading.Lock()
-        self.log_path = log
-        self.log = log.open("wb")
+        # `journal` (build/logs/renode_<date>.log) reçoit stdout+stderr de Renode ET la transcription des commandes ;
+        # `log` ne sert plus qu'à situer le répertoire de travail (config, historique).
+        self.log_path = journal or log
+        self.log = self.log_path.open("wb")
         # Renode réécrit TOUT l'historique des commandes (%APPDATA%\renode\history, partagé entre instances) à
         # chaque commande monitor ; sous un sondage soutenu, l'écriture finit par échouer (IOException « fichier
         # utilisé par un autre processus ») et Renode meurt. Config propre à la session => historique propre.
@@ -262,7 +303,8 @@ class Monitor:
             cfg.write_text(f"[general]\nhistory-path = {log.parent / 'history'}\n", encoding="utf-8")
             args[3:3] = ["--config", str(cfg)]
         try:
-            self.proc = subprocess.Popen(args, cwd=REPO, stdout=self.log, stderr=subprocess.STDOUT)
+            extra = {"start_new_session": True} if os.name != "nt" else {}
+            self.proc = subprocess.Popen(args, cwd=REPO, stdout=self.log, stderr=subprocess.STDOUT, **extra)
         except OSError as e:
             self.log.close()
             raise SimError(f"impossible de lancer Renode ({renode}) : {e}") from e
@@ -285,6 +327,10 @@ class Monitor:
             self.close()
             raise
 
+    def lost_message(self, err: object) -> str:
+        """Message de `SimError` « connexion perdue » : cause, état du processus Renode et chemin du journal."""
+        return format_lost(err, self.proc.poll(), self.log_path)
+
     def _read_prompt(self, timeout: float) -> str:
         buf = b""
         end = time.time() + timeout
@@ -297,7 +343,7 @@ class Monitor:
                     raise SimError("Renode s'est arrêté (voir le log)")
                 continue
             except OSError as e:
-                raise SimError(f"connexion au monitor perdue : {e}") from e
+                raise SimError(self.lost_message(e)) from e
             if not c:
                 raise SimError("Renode a fermé le monitor (voir le log)")
             buf += c
@@ -334,7 +380,7 @@ class Monitor:
             try:
                 self.proc.wait(10)
             except subprocess.TimeoutExpired:
-                self.proc.kill()
+                _kill_tree(self.proc)
                 self.proc.wait(5)
         finally:
             self.log.close()
@@ -390,9 +436,16 @@ class Session:
     """Une machine Renode E7 pilotable (contrat docs/INTERFACES.md)."""
 
     def __init__(self, board: boardmod.Board | None = None, *, renode: Path | None = None,
-                 port: int | None = None) -> None:
+                 port: int | None = None, skip_busy_loops: bool = True, advance_immediately: bool = False) -> None:
+        """`skip_busy_loops` : court-circuite `sys_busy_loop_us` du SDK (les délais ne durent plus en temps virtuel ;
+        elle scrute le compteur 32 kHz, stub Python : ~90 % du temps réel du boot de display_hp). 
+        `advance_immediately` : le temps virtuel n'est plus calé sur le temps réel (`emulation SetAdvanceImmediately`) :
+        supprime le palier de boot d'environ 5 s, mais la simulation court alors à 30-40x le temps réel pendant les
+        WFI. Mesures : docs/SPIKE_ECRAN.md §6."""
+        self.skip_busy_loops = skip_busy_loops
+        self.advance_immediately = advance_immediately
         self.board = board or boardmod.load()
-        self._renode = Path(renode) if renode else toolchain.find("renode")
+        self._renode = Path(renode) if renode else toolchain.renode_binary()
         self._port = port
         self._images: list[Image] = []
         self._mon: Monitor | None = None
@@ -442,7 +495,7 @@ class Session:
             self._workdir = WORK / f"s{os.getpid()}_{port}"
             self._workdir.mkdir(parents=True, exist_ok=True)
             try:
-                self._mon = Monitor(Path(self._renode), port, self._workdir / "renode.log")
+                self._mon = Monitor(Path(self._renode), port, self._workdir / "renode.log", _new_journal(port))
                 break
             except SimError as e:
                 last = e
@@ -452,6 +505,8 @@ class Session:
         m.cmd('mach create "e7"')
         m.cmd(f"machine LoadPlatformDescription @{self._rel(REPL)}")
         m.cmd(f"machine LoadPlatformDescription @{self._rel(stubs.write(self.board, self._workdir / 'stubs'))}")
+        if self.advance_immediately:
+            m.cmd("emulation SetAdvanceImmediately true")
         # Lecture d'un stub avant le boot. Cycle 4 : mesurée SANS effet sur le palier de ~5 s (voir SPIKE_RENODE.md
         # « Palier de boot ») ; conservée, inoffensive (quelques ms).
         warm = next((p for p in self.board.peripherals if p.type == "counter" and p.attrs.get("role") == "read"), None)
@@ -518,6 +573,10 @@ class Session:
         if not Path(img.path).is_file():
             raise SimError(f"image introuvable : {img.path}")
         self._open()
+        if self._booted:
+            # machine déjà démarrée : recharger par-dessus ferait redémarrer le cœur sur un état sale (RAM, périphériques,
+            # temps virtuel non remis à zéro). On repart d'une machine remise à zéro, comme pour un premier chargement.
+            self.reset()
         cpu = self._cpus[img.core]
         m = self._mon
         if img.is_elf:
@@ -584,6 +643,10 @@ class Session:
                 addr = _elf_symbol(Path(img.path), "MPU_Setup")
                 if addr is not None:
                     m.cmd(f"sysbus WriteWord {addr:#x} 0x4770")
+                # sys_busy_loop_us() : `movs r0, #0 ; bx lr` (0x2000 0x4770). Même technique que MPU_Setup.
+                addr = _elf_symbol(Path(img.path), "sys_busy_loop_us") if self.skip_busy_loops else None
+                if addr is not None:
+                    m.cmd(f"sysbus WriteDoubleWord {addr & ~1:#x} 0x47702000")
         self._t0 = 0.0
         self._t0 = self.virtual_time()  # origine du temps virtuel = instant du dé-halt
         self._vtime = 0.0
@@ -606,6 +669,14 @@ class Session:
             self._mon.cmd("pause")
             self._running = False
 
+    def set_advance_immediately(self, on: bool) -> None:
+        """Bascule à chaud le mode « accéléré » (temps virtuel non calé sur le temps réel). Valable en marche
+        comme en pause ; la valeur survit à `reset()` (la machine Renode n'est pas recréée)."""
+        on = bool(on)
+        if self._mon is not None:
+            self._mon.cmd(f"emulation SetAdvanceImmediately {'true' if on else 'false'}")
+        self.advance_immediately = on
+
     def reset(self) -> None:
         """Remet la machine à zéro et recharge les images (état identique à un premier `start`)."""
         self._open()
@@ -613,6 +684,7 @@ class Session:
         m.cmd("pause")
         self._disable_profilers()
         m.cmd("machine Reset")
+        self._booted = False
         for cpu in self._cpus.values():
             m.cmd(f"{cpu} IsHalted true")
         imgs, self._images = self._images, []
@@ -637,6 +709,60 @@ class Session:
                 raise SimError(f"lecture mémoire invalide à {addr + len(out):#x} ({len(got)}/{n} octets)")
             out += got
         return bytes(out)
+
+    _FB_BPP = {"ARGB8888": 4, "RGBA8888": 4, "RGB888": 3, "RGB565": 2, "ARGB1555": 2, "ARGB4444": 2, "AL44": 1, "AL8": 1}
+
+    def read_framebuffer(self, coherent: bool = True) -> dict | None:
+        """Image affichée par le CDC200 simulé, ou None si l'écran n'est pas actif.
+
+        Lit dans le stub CDC200 (`board.display`) GLB_CTRL.EN, puis le premier calque dont L_CTRL.EN est levé ;
+        renvoie {"width", "height", "format", "pitch", "address", "data"} : `format` = nom du format du calque
+        (RGB565 pour l'AppKit), `pitch` = bits 31:16 de CFB_LENGTH, `width` = pitch / octets par pixel,
+        `height` = CFB_LINES, `data` = pitch × height octets copiés de `address` (voie `python` du monitor,
+        ~5 ms). `coherent` : si l'émulation tourne, elle est mise en pause le temps de la copie puis reprise
+        (sinon la copie, non atomique, chevauche les écritures du firmware). Même en pause, l'état copié peut
+        être un dessin en cours (comme sur carte sans double tampon). Un seul calque, sans mélange ni fenêtre."""
+        self._open()
+        d = self.board.display
+        if not d or "controller" not in d:
+            return None
+        base, regs = d["controller"]["base"], d["controller"]["registers"]
+
+        def rd(a: int) -> int:
+            return int(self._mon.cmd(f"sysbus ReadDoubleWord {a:#x}").strip().split()[-1], 0)
+
+        if not rd(base + regs["glb_ctrl"]["offset"]) >> regs["glb_ctrl"]["enable_bit"] & 1:
+            return None
+        for n in range(d["controller"]["layers"]):
+            lb = base + regs["layer_base"] + n * regs["layer_stride"]
+            if rd(lb + regs["layer_ctrl"]["offset"]) >> regs["layer_ctrl"]["enable_bit"] & 1:
+                break
+        else:
+            return None
+        fmt = d["controller"]["pixel_formats"].get(rd(lb + regs["layer_pix_format"]))
+        bpp = self._FB_BPP.get(fmt)
+        addr = rd(lb + regs["layer_cfb_addr"])
+        pitch = rd(lb + regs["layer_cfb_length"]) >> 16
+        height = rd(lb + regs["layer_cfb_lines"])
+        if bpp is None or not pitch or not height:
+            return None
+        size = pitch * height
+        f = (self._workdir / "fb_capture.bin").resolve()
+        pause = coherent and self._running
+        if pause:
+            self._mon.cmd("pause")
+        try:
+            # chemin ABSOLU (le répertoire courant de l'interpréteur `python` est celui de Renode), guillemets simples
+            self._mon.cmd(f'python "System.IO.File.WriteAllBytes(\'{f.as_posix()}\', '
+                          f'self.Machine.SystemBus.ReadBytes({addr:#x}, {size}))"')
+        finally:
+            if pause:
+                self._mon.cmd("start")
+        data = f.read_bytes()
+        f.unlink()
+        if len(data) != size:
+            raise SimError(f"capture framebuffer invalide ({len(data)}/{size} octets à {addr:#x})")
+        return {"width": pitch // bpp, "height": height, "format": fmt, "pitch": pitch, "address": addr, "data": data}
 
     # -- mesures (agent 05) : instructions, pile, MHU, fautes
     def cpu_stats(self, core: str) -> dict:
@@ -701,7 +827,8 @@ class Session:
         """Lit les lignes NOUVELLES du log Renode (incrémental) et en extrait événements MHU, aborts CPU et accès
         non mappés. Le log peut devenir très gros (récursion folle) : on ne le relit jamais en entier."""
         try:
-            with (self._workdir / "renode.log").open("rb") as f:
+            log = self._mon.log_path if self._mon is not None else self._workdir / "renode.log"
+            with log.open("rb") as f:
                 with self._scan_lock:
                     f.seek(self._log_off)
                     chunk = f.read()

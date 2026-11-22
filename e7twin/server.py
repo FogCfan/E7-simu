@@ -10,17 +10,44 @@ import re
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import board as board_mod
+
+
+class _NoCacheStatic(StaticFiles):
+    """Fichiers statiques revalidés à chaque requête (ETag -> 304 possible)."""
+
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
 from .metrics import FakeSource, MetricsSource
 
 ROOT = Path(__file__).resolve().parent.parent
 SPIKE_DIR = ROOT / "build" / "spike"
 EXAMPLES_DIR = ROOT / "build" / "examples"
-IMAGE_DIRS = {"examples": EXAMPLES_DIR, "spike": SPIKE_DIR}
+UPLOAD_DIR = ROOT / "build" / "uploads"
+SRC_EXAMPLES_DIR = ROOT / "examples"
+_building: set[str] = set()  # noms en cours de compilation (/api/build/source)
+
+
+def _anon_name() -> str:
+    """Nom unique pour un import sans nom : upload_<horodatage>_<4 hex>."""
+    import time
+    import uuid
+    return f"upload_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:4]}"
+
+
+IMAGE_DIRS = {"examples": EXAMPLES_DIR, "spike": SPIKE_DIR, "uploads": UPLOAD_DIR}
+MAX_UPLOAD = 32 * 1024 * 1024
+MAX_SOURCE = 1024 * 1024
+_EM_ARM = 40
 REPORTS_DIR = ROOT / "reports"  # rapports `<stem>.npu.json` écrits par `e7twin npu`
 UART_HISTORY = 200 # dernières lignes conservées par UART
 WEB_DIR = ROOT / "web"
@@ -28,9 +55,103 @@ TICK_S = 0.1  # ≈ 10 Hz
 _IMAGE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
+class SpeedBody(BaseModel):
+    accelerated: bool
+
+
 class LoadBody(BaseModel):
     core: str
     path: str
+
+
+class CheckRunBody(BaseModel):
+    elf: str
+    core: str
+    npu_report: str | None = None
+
+
+_CORE_TAGS = (("m55_hp", "hp"), ("m55_he", "he"))
+_NAME_RE = re.compile(r"[A-Za-z0-9_]+")
+
+
+def _under(path: str, base: Path) -> Path:
+    """Chemin (relatif au dépôt ou absolu) résolu, exigé sous `base` ; sinon 400."""
+    p = Path(path)
+    p = (p if p.is_absolute() else ROOT / p).resolve()
+    if not p.is_relative_to(base.resolve()):
+        raise HTTPException(400, f"chemin refusé (hors de {base.name}/) : {path!r}")
+    return p
+
+
+def _shown(p: Path) -> str:
+    return p.relative_to(ROOT).as_posix() if p.is_relative_to(ROOT) else str(p)
+
+
+def _cores_of(s: str) -> list[str]:
+    s = s.lower()
+    return [c for c, tag in _CORE_TAGS if tag in s or c in s]
+
+
+def _readme_entries() -> dict[str, dict]:
+    """`examples/README.md` : lignes `nom — description — cœur(s)` (puces facultatives) ou lignes de tableau
+    `| `nom` | cœur | description |`. Sans README : un dossier = un exemple (nom du dossier, description vide)."""
+    out: dict[str, dict] = {}
+    readme = SRC_EXAMPLES_DIR / "README.md"
+    if readme.is_file():
+        for line in readme.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip().lstrip("-*").strip()
+            if line.startswith("|"):
+                cells = [c.strip().strip("`") for c in line.strip("|").split("|")]
+                if len(cells) >= 3 and _NAME_RE.fullmatch(cells[0]) and cells[0].lower() != "projet":
+                    out[cells[0]] = {"description": cells[2], "cores": _cores_of(cells[1])}
+            else:
+                parts = [x.strip().strip("`") for x in re.split(r"\s+[—–]\s+", line)]
+                if len(parts) >= 2 and _NAME_RE.fullmatch(parts[0]):
+                    out[parts[0]] = {"description": parts[1], "cores": _cores_of(parts[2]) if len(parts) > 2 else []}
+    if SRC_EXAMPLES_DIR.is_dir():
+        for d in sorted(SRC_EXAMPLES_DIR.iterdir()):
+            if d.is_dir() and d.name not in out and any(d.glob("*.cproject.yml")):
+                out[d.name] = {"description": "", "cores": []}
+    return out
+
+
+def list_examples() -> list[dict]:
+    entries = _readme_entries()
+    # regroupe x_hp / x_he en un seul exemple `x` quand les deux existent
+    for name in list(entries):
+        if name.endswith("_hp") and name in entries and name[:-3] + "_he" in entries:
+            base = name[:-3]
+            hp, he = entries.pop(name), entries.pop(base + "_he")
+            entries[base] = {"description": hp["description"] or he["description"], "cores": ["m55_hp", "m55_he"]}
+    out = []
+    for name, e in entries.items():
+        elfs: dict[str, str] = {}
+        cores = list(e["cores"])
+        for cand, core in ((f"{name}_hp", "m55_hp"), (f"{name}_he", "m55_he"), (name, None)):
+            f = EXAMPLES_DIR / f"{cand}.elf"
+            if f.is_file():
+                c = core or (cores[0] if len(cores) == 1 else _deduce_core(f))
+                if c:
+                    elfs[c] = f.relative_to(ROOT).as_posix()
+                    if c not in cores:
+                        cores.append(c)
+        if not cores:  # nom en *_hp / *_he sans cœur dans le README
+            cores = [c for c, tag in _CORE_TAGS if name.endswith("_" + tag)]
+        out.append({"name": name, "cores": sorted(cores), "description": e["description"],
+                    "elf": next(iter(elfs.values()), None), "elfs": elfs, "built": bool(elfs)})
+    return out
+
+
+def _check_elf_header(data: bytes) -> str | None:
+    """Message d'erreur, ou None si `data` ressemble à un ELF 32 bits little-endian ARM."""
+    if len(data) < 20 or data[:4] != b"\x7fELF":
+        return "fichier refusé : ce n'est pas un ELF (magic 7F 45 4C 46 absent)"
+    if data[4] != 1 or data[5] != 1:
+        return "ELF refusé : il faut un ELF 32 bits little-endian (Cortex-M)"
+    machine = int.from_bytes(data[18:20], "little")
+    if machine != _EM_ARM:
+        return f"ELF refusé : machine {machine} (attendu {_EM_ARM} = ARM)"
+    return None
 
 
 class _Hub:
@@ -54,10 +175,10 @@ class _Hub:
     def tick(self) -> None:
         src = self.source
         sample = src.sample()
-        for line in src.uart_lines():
+        for line in src.uart_lines()[-UART_PER_TICK:]:  # accéléré : ne pas saturer le WebSocket
             self.uart_hist.setdefault(line["uart"], collections.deque(maxlen=UART_HISTORY)).append(line)
             self.publish({"type": "uart", **line})
-        for ev in src.events():
+        for ev in src.events()[-EVENTS_PER_TICK:]:
             self.publish({"type": "event", "data": ev})
         if sample is not self._last_sample:  # une source lente (SimSource) ne republie pas le même sample
             self._last_sample = sample
@@ -74,6 +195,10 @@ class _Hub:
             except Exception as e:  # ne jamais tuer la boucle de diffusion
                 self.publish({"type": "status", "state": "error", "fake": True, "message": str(e)})
             await asyncio.sleep(TICK_S)
+
+
+UART_PER_TICK = 200
+EVENTS_PER_TICK = 200
 
 
 def _core_from_image(name: str) -> str:
@@ -181,6 +306,103 @@ def create_app(source: MetricsSource, reports_dir: Path | None = None) -> FastAP
         except ValueError as e:
             raise HTTPException(422, f"rapport illisible : {e}") from e
 
+    @app.get("/api/examples")
+    def get_examples() -> list[dict]:
+        return list_examples()
+
+    @app.post("/api/upload")
+    async def upload(request: Request, name: str = "") -> dict:
+        stem = re.sub(r"[^A-Za-z0-9_.-]", "_", Path(name.replace("\\", "/")).name)
+        stem = stem[:-4] if stem.lower().endswith(".elf") else stem
+        stem = stem.strip("._") or _anon_name()
+        too_big = f"fichier trop gros (max {MAX_UPLOAD // (1024 * 1024)} Mo)"
+        if int(request.headers.get("content-length") or 0) > MAX_UPLOAD:
+            raise HTTPException(400, too_big)
+        data = b""
+        async for chunk in request.stream():
+            data += chunk
+            if len(data) > MAX_UPLOAD:
+                raise HTTPException(400, too_big)
+        err = _check_elf_header(data)
+        if err:
+            raise HTTPException(400, err)
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        path = UPLOAD_DIR / f"{stem}.elf"
+        path.write_bytes(data)
+        try:
+            from . import sim
+            core = sim.assign_core(path)[0]
+        except Exception:
+            core = _deduce_core(path)
+        return {"id": f"uploads/{stem}", "name": stem, "elf": _shown(path), "core_guess": core}
+
+    @app.post("/api/build/source")
+    async def build_source_route(request: Request, core: str = "", name: str = "") -> dict:
+        from . import build as build_mod
+        if core not in ("m55_hp", "m55_he"):
+            raise HTTPException(400, f"cœur invalide : {core!r} (m55_hp|m55_he)")
+        data = b""
+        async for chunk in request.stream():
+            data += chunk
+            if len(data) > MAX_SOURCE:
+                raise HTTPException(400, f"source trop gros (max {MAX_SOURCE // 1024} Ko)")
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError as e:
+            raise HTTPException(400, "le corps doit être du texte UTF-8") from e
+        if not text.strip():
+            raise HTTPException(400, "corps vide : envoyer le texte de main.c")
+        stem = build_mod.sanitize_name(name, default=_anon_name())
+        if stem in _building:
+            raise HTTPException(409, f"une compilation de {stem!r} est déjà en cours")
+        _building.add(stem)  # boucle asyncio mono-thread : test + ajout atomiques
+        try:
+            UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+            src = UPLOAD_DIR / f"{stem}.c"
+            src.write_text(text, encoding="utf-8", newline="\n")
+            res = await run_in_threadpool(build_mod.build_source, src, core, stem, UPLOAD_DIR)
+        finally:
+            _building.discard(stem)
+        res = dict(res)
+        res["name"] = stem
+        if res.get("ok") and res.get("elf"):
+            try:
+                from . import sim
+                res["core_guess"] = sim.assign_core(res["elf"])[0]
+            except Exception:
+                res["core_guess"] = core
+        return res
+
+    @app.post("/api/check/run")
+    def check_run(body: CheckRunBody) -> dict:
+        elf = _under(body.elf, ROOT / "build")
+        if not elf.is_file():
+            raise HTTPException(404, f"ELF introuvable : {body.elf!r}")
+        npu = None
+        if body.npu_report:
+            npu = _under(body.npu_report, rdir)
+            if not npu.is_file():
+                raise HTTPException(404, f"rapport NPU introuvable : {body.npu_report!r}")
+        from . import check, report as report_mod
+        try:
+            rep = check.run(elf, body.core, npu_report=npu)
+        except KeyError as e:
+            raise HTTPException(404, f"cœur inconnu : {body.core!r}") from e
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        _, html = report_mod.write(rep, rdir)
+        shown = _shown(html)
+        return {**rep.to_dict(), "report_html": shown, "report_url": f"/api/report/{html.name}"}
+
+    @app.get("/api/report/{name}")
+    def get_report(name: str) -> FileResponse:
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+\.check\.(html|json)", name) or ".." in name:
+            raise HTTPException(404, f"rapport inconnu : {name!r}")
+        path = rdir / name
+        if not path.is_file():
+            raise HTTPException(404, f"rapport inconnu : {name!r}")
+        return FileResponse(path, media_type="text/html" if name.endswith(".html") else "application/json")
+
     @app.get("/api/uart")
     def get_uart(n: int = UART_HISTORY) -> dict:
         n = max(0, min(n, UART_HISTORY))
@@ -190,10 +412,23 @@ def create_app(source: MetricsSource, reports_dir: Path | None = None) -> FastAP
     def sim_status() -> dict:
         return source.status()
 
+    @app.post("/api/sim/speed")
+    def sim_speed(body: SpeedBody) -> dict:
+        fn = getattr(source, "set_speed", None)
+        try:
+            if fn is None:
+                raise RuntimeError("vitesse non supportée")
+            fn(body.accelerated)
+        except RuntimeError as e:
+            raise HTTPException(409, str(e)) from e
+        hub.publish(hub.status_msg())
+        return source.status()
+
     @app.post("/api/sim/load")
     def sim_load(body: LoadBody) -> dict:
         try:
-            source.load(body.core, body.path)
+            lp = Path(body.path)
+            source.load(body.core, str(ROOT / lp if not lp.is_absolute() and (ROOT / lp).exists() else lp))
         except KeyError as e:
             raise HTTPException(404, str(e.args[0])) from e
         except ValueError as e:
@@ -215,6 +450,26 @@ def create_app(source: MetricsSource, reports_dir: Path | None = None) -> FastAP
         hub._last_state = source.status().get("state")
         return source.status()
 
+    def _fb() -> dict | None:
+        fn = getattr(source, "framebuffer", None)
+        return fn() if fn else None
+
+    @app.get("/api/display")
+    def get_display() -> dict:
+        fb = _fb()
+        if not fb:
+            return {"enabled": False, "width": None, "height": None, "format": None, "address": None}
+        return {"enabled": True, "width": fb["width"], "height": fb["height"],
+                "format": fb["format"], "address": fb.get("address")}
+
+    @app.get("/api/display.png")
+    def get_display_png() -> Response:
+        from .framebuffer import to_png
+        fb = _fb()
+        if not fb:
+            raise HTTPException(404, "écran inactif")
+        return Response(to_png(fb), media_type="image/png", headers={"Cache-Control": "no-store"})
+
     @app.get("/api/profile/{core}")
     def get_profile(core: str) -> dict:
         try:
@@ -235,14 +490,38 @@ def create_app(source: MetricsSource, reports_dir: Path | None = None) -> FastAP
                 for line in list(hist):
                     await websocket.send_json({"type": "uart", **line})
             while True:
-                await websocket.send_json(await q.get())
-        except (WebSocketDisconnect, RuntimeError):
+                # on écoute aussi le client : fermeture de l'onglet ou arrêt d'uvicorn (frame close) = sortie propre
+                get = asyncio.ensure_future(q.get())
+                recv = asyncio.ensure_future(websocket.receive())
+                try:
+                    done, _ = await asyncio.wait({get, recv}, return_when=asyncio.FIRST_COMPLETED)
+                finally:
+                    for t in (get, recv):
+                        if not t.done():
+                            t.cancel()
+                if recv in done:
+                    if recv.result().get("type") == "websocket.disconnect":
+                        break
+                    if get not in done:
+                        continue
+                await websocket.send_json(get.result())
+        except (WebSocketDisconnect, RuntimeError, asyncio.CancelledError):
             pass
         finally:
             hub.clients.discard(q)
 
+    @app.post("/api/shutdown")
+    async def shutdown(request: Request) -> dict:
+        host = request.client.host if request.client else ""
+        if host not in ("127.0.0.1", "::1", "localhost", "testclient"):
+            raise HTTPException(403, "arrêt réservé au poste local")
+        srv = getattr(app.state, "server", None)  # posé par main() ; absent avec create_app seul
+        if srv is not None:
+            asyncio.get_running_loop().call_later(0.5, setattr, srv, "should_exit", True)
+        return {"ok": True}
+
     if WEB_DIR.is_dir():
-        app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
+        app.mount("/", _NoCacheStatic(directory=WEB_DIR, html=True), name="web")
     return app
 
 
@@ -277,7 +556,14 @@ def main(host: str = "127.0.0.1", port: int = 8000, fake: bool = True,
             return 2
     import uvicorn
     try:
-        uvicorn.run(create_app(source), host=host, port=port, log_level="info")
+        app = create_app(source)
+        server = uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level="info",
+                                               timeout_graceful_shutdown=3))
+        app.state.server = server
+        try:
+            server.run()
+        except KeyboardInterrupt:  # Ctrl+C : uvicorn a déjà arrêté proprement, le signal est ré-émis à la sortie
+            pass
     finally:
         close = getattr(source, "close", None)
         if close:

@@ -3,6 +3,7 @@
 #   KIND  : 'regfile' | 'counter' | 'uartdw'
 #   BLOCK : nom du bloc (clé du modèle de carte)
 #   READY : {offset: masque OR-é en lecture}  (bits "ready/locked" que le matériel lèverait seul)
+#   FIXED : {offset: valeur} registres RO à valeur constante (regfile ; ex. CDC_HW_VER / CDC_LCNT)
 #   FREQ, ROLE : pour KIND == 'counter' (ROLE 'control' | 'read')
 # Politique « pas de zéro silencieux » : le 1er accès (lecture ou écriture) à chaque offset est
 # journalisé en WARNING, avec le PC du cœur ; la lecture renvoie la dernière valeur écrite.
@@ -52,6 +53,7 @@ else:
                 BLOCK, "lecture" if request.IsRead else "écriture", off,
                 "" if request.IsRead else " valeur 0x%X" % request.Value))
         if request.IsRead:
-            request.Value = _regs.get(off, 0) | READY.get(off, 0)
+            # FIXED : registres en lecture seule (valeur constante, écritures ignorées à la lecture)
+            request.Value = FIXED[off] if off in FIXED else (_regs.get(off, 0) | READY.get(off, 0))
         else:
             _regs[off] = request.Value

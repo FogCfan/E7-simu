@@ -64,3 +64,64 @@ def test_ws_feeds_the_dashboard(client):
             if {"sample", "uart"} <= kinds:
                 break
         assert {"sample", "uart"} <= kinds
+
+
+def test_main_tabs_present(client):
+    html = client.get("/").text
+    for t in ("examples", "import", "verify", "sim"):
+        assert f'data-tab="{t}"' in html and f'id="view-{t}"' in html, t
+    for i in ("drop", "src-text", "btn-compile", "btn-start", "btn-pause", "btn-reset", "btn-lang"):
+        assert f'id="{i}"' in html, i
+
+
+def test_app_calls_routes(client):
+    js = client.get("/app.js").text
+    for route in ("/api/examples", "/api/upload", "/api/build/source", "/api/check/run", "/api/sim/load", '"/api/sim/"'):
+        assert route in js, route
+    assert "alert(" not in js
+
+
+def _i18n_keys(js: str) -> dict[str, set[str]]:
+    out = {}
+    for lang in ("fr", "en"):
+        m = re.search(rf"\n    {lang}: \{{(.*?)\n    \}},", js, re.S)
+        assert m, lang
+        out[lang] = set(re.findall(r"\b([a-z0-9_]+):\s*\"", m.group(1)))
+    return out
+
+
+def test_i18n_same_keys_in_both_languages(client):
+    keys = _i18n_keys(client.get("/app.js").text)
+    assert keys["fr"] and keys["fr"] == keys["en"], keys["fr"] ^ keys["en"]
+    html = client.get("/").text
+    used = set(re.findall(r'data-i18n(?:-aria)?="([a-z0-9_]+)"', html))
+    assert used <= keys["fr"], used - keys["fr"]
+
+
+def test_launcher_waits_for_port():
+    from pathlib import Path
+    cmd = (WEB_DIR.parent / "E7Twin.cmd").read_text(encoding="utf-8", errors="replace")
+    assert "TcpClient" in cmd and "30" in cmd
+    assert cmd.index("TcpClient") < cmd.index("e7twin.cli serve") or "start \"\" /b" in cmd
+
+
+def test_display_view_present_and_wired(client):
+    html = client.get("/").text
+    assert 'id="view-display"' in html and 'id="display-img"' in html
+    js = client.get("/app.js").text
+    assert '"/api/display"' in js and "/api/display.png?t=" in js
+    assert "CDC200" in js and "sans timing DSI" in html
+
+
+def test_accelerated_checkbox_wired(client):
+    html = client.get("/").text
+    assert 'id="chk-accel"' in html and "Saute les périodes de veille" in html
+    js = client.get("/app.js").text
+    assert "/api/sim/speed" in js and "accelerated" in js and "Accelerated" in js
+
+
+def test_quit_button_wired(client):
+    html = client.get("/").text
+    assert 'id="btn-quit"' in html
+    js = client.get("/app.js").text
+    assert "/api/shutdown" in js and "quitting = true" in js and "Stop E7 Twin" in js

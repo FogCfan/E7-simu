@@ -377,3 +377,17 @@ def test_main_writes_repl(tmp_path, repl):
     out = tmp_path / "e7.repl"
     assert B.main(["--repl", "--out", str(out)]) == 0
     assert out.read_text(encoding="utf-8") == repl
+
+
+def test_display_section(brd: B.Board) -> None:
+    d = brd.display
+    assert d["controller"]["name"] == "CDC200"
+    assert d["controller"]["base"] == 0x49031000
+    assert d["controller"]["irq"]["scanline"] == 333
+    assert d["dsi"]["base"] == 0x49032000 and d["dsi"]["irq"]["error"] == 343
+    assert (d["panel"]["hactive"], d["panel"]["vactive"]) == (480, 800)
+    assert d["panel"]["default_pixel_format"]["name"] == "RGB565"
+    assert d["touch"]["controller"] == "GT911"
+    for k in ("controller", "dsi", "panel", "framebuffer", "touch"):
+        assert d[k].get("source"), k
+    assert brd.to_dict()["display"]["panel"]["controller"] == "ILI9806E"

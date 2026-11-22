@@ -1,4 +1,4 @@
-﻿# Solution des firmwares de reference E7 Twin (agent 07).
+# Solution des firmwares de reference E7 Twin (agent 07).
 # Copie adaptee de tools/alif_vscode-template (alif.csolution.yml, commit ebbf1513) : memes packs,
 # meme board (DevKit-E7, meme SoC AE722F80F55D5LS que l'AppKit), memes layers, meme cdefault.yml.
 # Seuls les target-types E7 sont conserves. Aucun lien vers tools/.
@@ -55,3 +55,9 @@ solution:
       for-context: +DevKit-E7-HP
     - project: dual_core_mhu_he/dual_core_mhu_he.cproject.yml
       for-context: +DevKit-E7-HE
+    - project: load_loop_hp/load_loop_hp.cproject.yml
+      for-context: +DevKit-E7-HP
+    - project: load_loop_he/load_loop_he.cproject.yml
+      for-context: +DevKit-E7-HE
+    - project: display_hp/display_hp.cproject.yml
+      for-context: +DevKit-E7-HP

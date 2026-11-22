@@ -149,6 +149,23 @@ Source : `alif_vscode-template/.alif/M55_HP_HE_mram_cfg.json`, lu **V**.
 - Notre `.repl` (`e7twin/renode/e7.repl`) est **généré** depuis le YAML par `python -m e7twin.board --repl`.
 - Il n'y a pas de Cortex-A32 dans Renode.
 
+## Affichage (CDC200, MIPI DSI, panneau, tactile)
+
+Sources : pack Alif installé localement `tools/packs/AlifSemiconductor/Ensemble/2.2.1` (PK). Détail et lignes dans la section `display:` de `board/ensemble_e7.yaml`.
+
+| Fait | Valeur | Source |
+|---|---|---|
+| CDC200 base / taille | 0x49031000 / 0x300 (SVD : 596 octets décodés) | PK `rtss_hp/soc.h` L3322, L2499-2527 ; SVD `<name>CDC</name>` |
+| IRQ CDC | scanline 333, fifo_warning 335, fifo_underrun 337, bus_error 339, reg_reload 341 (HP et HE) | `soc.h` L450-454 |
+| Registres utiles | GLB_CTRL 0x18 (bit0 EN), ACTW 0x10, TOTALW 0x14 ; 2 calques à 0x100 + n*0x100 : CTRL 0x0C (bit0 LAYER_EN), PIX_FORMAT 0x1C, CFB_ADDR 0x34, CFB_LENGTH 0x38, CFB_LINES 0x3C | `soc.h` L905-929 ; `drivers/include/cdc.h` L52-61 ; `cdc.c` |
+| Formats de pixel | 0 ARGB8888, 1 RGB888, 2 RGB565, 3 RGBA8888, 4 AL44, 5 AL8, 6 ARGB1555, 7 ARGB4444 | `cdc.h` L110-116 ; `RTE_Device.h` L1316-1323 |
+| DSI base / IRQ | 0x49032000 (404 octets) / 343 ; 2 lanes | `soc.h` L455, L3323 ; SVD ; `RTE_Device.h` L1075 |
+| Panneau par défaut | ILI9806E, variante E43GB_MW405, 480x800 (portrait déduit), RGB565 par défaut (`RTE_CDC200_PIXEL_FORMAT 2`) | `RTE_Device.h` (Blinky AppKit) L1037, L1047, L1083-1123, L1325 |
+| Framebuffer | section `.bss.lcd_frame_buf`, placée en NS_REGION_0 ou en SRAM0+SRAM1 combinées selon l'éditeur de liens ; 768 000 octets en RGB565 | `linker_ac6_mram.sct` L60-100 ; `demo_cdc200.c` L63 |
+| Tactile | GT911, I2C instance 1, reset GPIO4.0, INT GPIO9.x | `Boards/AppKit-e7-aiml/board_defs.h` L89-90, L895-901, L1965-1968 |
+
+**Non sourcé** : adresse réelle du framebuffer (fixée à l'édition de liens) ; taille physique de la dalle ; adresse I2C du GT911 ; numéro de broche INT ; bus exact d'initialisation du panneau (DSI supposé) ; fidélité de l'encodage ACTW/TOTALW (commentaire du driver ambigu) ; commentaire « Default: RGB888 » contredit par la valeur 2.
+
 ## Encore à vérifier (liste ouverte)
 
 1. Visibilité par maître des SRAM6_A/B, SRAM7, SRAM8 et SRAM9, ainsi que des alias SRAM2 à SRAM5 et des SRAM0/1 côté A32 (HRM).

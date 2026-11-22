@@ -51,6 +51,9 @@ def parse_collapsed(text: str, top: int = PROFILE_TOP) -> list[dict]:
     return [{"name": k, "instructions": v, "pct": round(100.0 * v / total, 2)} for k, v in rows]
 
 
+QUEUE_MAX = 2000  # lignes UART / événements gardés entre deux relevés du WebSocket (les plus récents)
+
+
 class SimSource:
     def __init__(self, board: board_mod.Board | None = None, *, session_factory: Callable[[], Any] | None = None,
                  check_fn: Callable[..., Any] | None = None, period: float = 0.25, slow_every: int = 4,
@@ -73,6 +76,7 @@ class SimSource:
         self._stack_region: dict[str, str] = {}
         self._stack_wm: dict[str, int | None] = {}
         self._poll_hz = 0.0
+        self._accelerated = False
         self._reset_run()
         self._latest = self._empty_sample()
         self._stop = threading.Event()
@@ -89,7 +93,30 @@ class SimSource:
             s = self._factory()
             s.__enter__()
             self._session = s
+            if self._accelerated and hasattr(s, "set_advance_immediately"):
+                s.set_advance_immediately(True)
         return self._session
+
+    def _recover(self) -> None:
+        """Après une erreur de monitor (Renode mort / connexion coupée) : ferme la Session morte et repart de zéro,
+        pour que la page puisse recharger une image sans redémarrer le serveur. Appelé sous `self._lock`."""
+        if self._state != "error":
+            return
+        s, self._session = self._session, None
+        if s is not None:
+            try:
+                s.__exit__(None, None, None)
+            except Exception:
+                pass
+        self._images.clear()
+        self._static.clear()
+        self._stack_wm.clear()
+        self._stack_region.clear()
+        self._profiled.clear()
+        self._fb_cache = None
+        self._state = "stopped"
+        self._message = None
+        self._reset_run()
 
     def _reset_run(self) -> None:
         self._last_vt: float | None = None
@@ -147,6 +174,7 @@ class SimSource:
             raise ValueError(f"image introuvable : {path}")
         from .sim import SimError
         with self._lock:
+            self._recover()
             try:
                 s = self._ensure()
                 if self._state == "running":
@@ -187,6 +215,7 @@ class SimSource:
 
     def reset(self) -> None:
         with self._lock:
+            self._recover()
             if self._session is not None:
                 self._session.reset()
                 self._profiled.clear()  # les profilers sont perdus avec la remise à zéro
@@ -219,7 +248,7 @@ class SimSource:
                 cores[c.id] = "actif" if self._state == "running" else self._state
         st = {"state": self._state, "fake": False, "cores": cores, "images": dict(self._images),
               "t_virtual_s": t, "poll_hz": round(self._poll_hz, 2),
-              "instructions": dict(self._instr_total)}
+              "instructions": dict(self._instr_total), "accelerated": self._accelerated}
         if self._message:
             st["message"] = self._message
         return st
@@ -234,6 +263,36 @@ class SimSource:
             return f"activation du profiler impossible : {e}"
         self._profiled.add(core)
         return None
+
+    def set_speed(self, accelerated: bool) -> None:
+        """Temps réel (défaut) ou accéléré (`Session.set_advance_immediately`). RuntimeError (-> 409) sans session."""
+        with self._lock:
+            fn = getattr(self._session, "set_advance_immediately", None) if self._session is not None else None
+            if self._session is None:
+                raise RuntimeError("aucune simulation chargée")
+            if fn is None:
+                raise RuntimeError("vitesse non supportée par cette session")
+            fn(bool(accelerated))
+            self._accelerated = bool(accelerated)
+
+    FB_MIN_INTERVAL_S = 0.2  # <= 5 captures/s
+
+    def framebuffer(self) -> dict | None:
+        """Délègue à `Session.read_framebuffer()` ; cache 200 ms ; None sans session / méthode / écran actif."""
+        with self._lock:
+            now = time.monotonic()
+            cached = getattr(self, "_fb_cache", None)
+            if cached is not None and now - cached[0] < self.FB_MIN_INTERVAL_S:
+                return cached[1]
+            fn = getattr(self._session, "read_framebuffer", None) if self._session is not None else None
+            if fn is None:
+                return None
+            try:
+                fb = fn()
+            except Exception:
+                fb = None
+            self._fb_cache = (now, fb)
+            return fb
 
     def profile(self, core: str) -> dict:
         """Top 20 des fonctions par instructions exclusives (profiler Renode CollapsedStack, symboles de l'ELF
@@ -283,9 +342,9 @@ class SimSource:
         with self._slock:
             self._latest = sample
             if uart:
-                self._uart_q += uart
+                self._uart_q = (self._uart_q + uart)[-QUEUE_MAX:]
             if events:
-                self._ev_q += events
+                self._ev_q = (self._ev_q + events)[-QUEUE_MAX:]
 
     # ------------------------------------------------------------ thread d'échantillonnage
     def _loop(self) -> None:

@@ -32,6 +32,8 @@ EXAMPLES = {  # projet -> coeur (voir examples/alif.csolution.yml et tests/conft
     "stack_overflow": "m55_hp",
     "dual_core_mhu_hp": "m55_hp",
     "dual_core_mhu_he": "m55_he",
+    "load_loop_hp": "m55_hp",
+    "load_loop_he": "m55_he",
 }
 
 
@@ -61,7 +63,7 @@ def test_su_contains_the_application_main(examples_built, name):
 
 # ----------------------------------------------------------------------------- check : exemples sains
 
-@pytest.mark.parametrize("name", ["hello_hp", "hello_he", "helium_dot", "dual_core_mhu_hp", "dual_core_mhu_he"])
+@pytest.mark.parametrize("name", ["hello_hp", "hello_he", "helium_dot", "dual_core_mhu_hp", "dual_core_mhu_he", "load_loop_hp", "load_loop_he"])
 def test_check_ok_examples(name, example_elf, su_dir_of):
     """Aucune regle structurelle en FAIL.
 
@@ -78,7 +80,7 @@ def test_check_ok_examples(name, example_elf, su_dir_of):
     assert _rule(rep, "atoc").verdict == "SKIP"
 
 
-@pytest.mark.parametrize("name", ["hello_hp", "hello_he", "helium_dot", "dual_core_mhu_hp", "dual_core_mhu_he"])
+@pytest.mark.parametrize("name", ["hello_hp", "hello_he", "helium_dot", "dual_core_mhu_hp", "dual_core_mhu_he", "load_loop_hp", "load_loop_he"])
 def test_check_without_su_is_pass(name, example_elf, tmp_path):
     empty = tmp_path / "no_su"
     empty.mkdir()
@@ -224,6 +226,17 @@ def test_dual_core_mhu_events_and_no_uart_interleaving(example_elf):
     assert [e.value for e in sends if e.src == "m55_he"] == [0x504F0000 | n for n in range(1, 101)]
     assert [ln.text for ln in lines if ln.text.strip()] == ["HP: MHU ping start", "PONG 100"]
 
+
+# ----------------------------------------------------------------------------- load_loop (charge cyclique HP + HE)
+
+@pytest.mark.renode
+def test_load_loop_run_hp_he_ticks(example_elf, tmp_path):
+    """Les deux coeurs tournent ensemble : ticks reguliers, charge en dents de scie (10,30,50 %), pas de melange."""
+    cp = _run_expect(["--hp", str(example_elf("load_loop_hp")), "--he", str(example_elf("load_loop_he")),
+                      "--expect", "HP tick 3"], tmp_path)
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    for text in ("HP tick 1 load 10%", "HP tick 2 load 30%", "HP tick 3 load 50%", "HE tick 1 load 50%"):
+        assert text in cp.stdout, cp.stdout
 
 # ----------------------------------------------------------------------------- stack_overflow
 #

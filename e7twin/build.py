@@ -20,6 +20,8 @@ intermédiaires. Codes de retour : 0 succès, 1 échec de compilation, 2 environ
 
 from __future__ import annotations
 
+import contextlib
+import io
 import re
 import shutil
 import subprocess
@@ -310,3 +312,93 @@ def main(target: str, core: str | None = None, build_type: str = "debug", out_di
     except (KeyError, OSError) as e:
         _err(str(e))
         return ENV_ERR
+
+
+# ---------------------------------------------------------------------------------------------
+# Import d'un main.c unique (interface web)
+# ---------------------------------------------------------------------------------------------
+_GCC_DIAG = re.compile(r"^(?P<file>(?:[A-Za-z]:)?[^:\r\n]+?):(?P<line>\d+):(?:(?P<col>\d+):)?\s*"
+                       r"(?:fatal error|error):\s*(?P<msg>.+)$", re.M)
+_LOG_MAX = 20000
+
+
+def parse_gcc_errors(output: str) -> list[dict]:
+    """Extrait ``[{file, line, col, message}]`` des diagnostics ``error`` de GCC."""
+    out, seen = [], set()
+    for m in _GCC_DIAG.finditer(output):
+        item = {"file": Path(m["file"].strip().replace("\\", "/")).name, "line": int(m["line"]),
+                "col": int(m["col"] or 0), "message": m["msg"].strip()}
+        key = tuple(item.values())
+        if key not in seen:
+            seen.add(key)
+            out.append(item)
+    return out
+
+
+def sanitize_name(name: str | None, default: str = "upload") -> str:
+    """Nom de projet sûr : [A-Za-z0-9_-], 1..40 caractères, jamais de séparateur ni de ``..``."""
+    n = re.sub(r"[^A-Za-z0-9_-]+", "_", Path(str(name or "")).stem).strip("_-")[:40]
+    return n or default
+
+
+def build_source(main_c: str | Path, core: str, name: str | None = None, out_dir: str | Path = "build/uploads") -> dict:
+    """Compile un ``main.c`` unique dans le projet modèle ``examples/hello_hp|he`` (mêmes packs,
+    flags, placement). Tout est écrit sous ``<out_dir>/<nom>/`` (jamais en dehors).
+
+    Retourne ``{ok, elf, su_dir, log, errors}`` ; ne lève pas pour une erreur de compilation ni
+    d'environnement (``ok`` False, explication dans ``log``).
+    """
+    res = {"ok": False, "elf": None, "su_dir": None, "log": "", "errors": []}
+    try:
+        b = board_mod.load()
+        core = core.lower()
+        if core not in ("m55_hp", "m55_he") or not b.core(core).executable:
+            raise BuildError(f"cœur non supporté : {core!r} (m55_hp|m55_he)")
+        src_file = Path(main_c)
+        text = src_file.read_text(encoding="utf-8", errors="replace") if src_file.is_file() else str(main_c)
+        name = sanitize_name(name or (src_file.stem if src_file.is_file() and src_file.stem != "main" else None))
+        root = Path(out_dir).resolve()
+        work = (root / name).resolve()
+        if work.parent != root:  # garde-fou : rien ne sort de out_dir
+            raise BuildError(f"nom de projet refusé : {name!r}")
+        tpl_proj = "hello_" + core[-2:]
+        ex = REPO_ROOT / "examples"
+        if not (ex / tpl_proj).is_dir():
+            raise BuildError(f"projet modèle introuvable : {ex / tpl_proj}")
+        res_tools = {r["name"]: r for r in toolchain.doctor()}
+        missing = [n for n in ["arm-none-eabi-gcc", "cbuild", "csolution"] + [n for n in res_tools if n.startswith("pack ")]
+                   if not res_tools.get(n, {}).get("found")]
+        if missing:
+            raise BuildError("outils manquants : " + ", ".join(missing))
+
+        if work.exists():
+            shutil.rmtree(work)
+        sol_dir = work / "sol"
+        sol_dir.mkdir(parents=True)
+        for f in ("cdefault.yml", "alif.cbuild-pack.yml"):
+            if (ex / f).is_file():
+                shutil.copyfile(ex / f, sol_dir / f)
+        shutil.copytree(ex / "board", sol_dir / "board")
+        shutil.copytree(ex / tpl_proj, sol_dir / name)
+        (sol_dir / name / f"{tpl_proj}.cproject.yml").rename(sol_dir / name / f"{name}.cproject.yml")
+        (sol_dir / name / "main.c").write_text(text, encoding="utf-8")
+        sol_txt = (ex / "alif.csolution.yml").read_text(encoding="utf-8-sig")
+        head = sol_txt.split("\n  projects:", 1)[0]
+        target = "DevKit-E7-" + core[-2:].upper()
+        (sol_dir / "alif.csolution.yml").write_text(
+            f"{head}\n  projects:\n    - project: {name}/{name}.cproject.yml\n      for-context: +{target}\n",
+            encoding="utf-8")
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            code = _build_csolution(sol_dir / "alif.csolution.yml", name, core, "debug", work / "out", toolchain.env())
+        log = buf.getvalue()
+        res["log"] = log if len(log) <= _LOG_MAX else log[:_LOG_MAX // 2] + "\n[...tronqué...]\n" + log[-_LOG_MAX // 2:]
+        res["errors"] = parse_gcc_errors(log)
+        if code == OK:
+            elf = _newest(list((work / "out").rglob(f"{name}.elf")))
+            if elf is not None:
+                res.update(ok=True, elf=str(elf), su_dir=str(elf.parent / "su") if (elf.parent / "su").is_dir() else None)
+    except (BuildError, KeyError, OSError) as e:
+        res["log"] = f"{res['log']}\n{e}".strip()
+    return res

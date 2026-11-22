@@ -244,3 +244,73 @@ peripherals:
      source: "hp_soc L3320, L2487 CLKCTL_PER_SLV_Type ; he_soc L3314 ; renode_e8 Tag clockctrl 0xbc"}
   - {name: clkctl_per_mst, type: sysctrl, base: 0x4903F000, size: 0xB0, irq: {}, visible_to: [m55_hp, m55_he],
      source: "hp_soc L3329, L2999 CLKCTL_PER_MST_Type ; he_soc L3323 ; renode_e8 Tag clockctrl 0xb0"}
+
+# Affichage (cycle 7). Sources = fichiers du pack Alif installé localement (tools/packs/AlifSemiconductor/Ensemble/2.2.1, noté PK) ;
+# SVD = PK/Debug/SVD/AE722F80F55D5AS_CM55_HP_View.svd. Tout ce qui n'est pas trouvé localement vaut "non sourcé".
+display:
+  controller:
+    name: CDC200
+    base: 0x49031000
+    size: 0x300            # sizeof(CDC_Type)=768 ; le SVD déclare 596 (0x254) octets décodés
+    irq:                   # mêmes numéros dans rtss_hp et rtss_he
+      scanline: 333
+      fifo_warning: 335
+      fifo_underrun: 337
+      bus_error: 339
+      reg_reload: 341
+    layers: 2
+    registers:             # offsets relatifs à base ; couche n à 0x100 + n*0x100
+      hw_ver: 0x00         # RO ; valeur réelle non sourcée (le stub renvoie une valeur fixe non nulle)
+      lcnt: 0x04           # RO nombre de calques (= layers)
+      glb_ctrl: {offset: 0x18, enable_bit: 0}
+      actw_cfg: 0x10
+      totalw_cfg: 0x14
+      layer_base: 0x100
+      layer_stride: 0x100
+      layer_ctrl: {offset: 0x0C, enable_bit: 0}
+      layer_pix_format: 0x1C
+      layer_cfb_addr: 0x34
+      layer_cfb_length: 0x38
+      layer_cfb_lines: 0x3C
+      layer_win_hpos: 0x10
+      layer_win_vpos: 0x14
+    pixel_formats: {0: ARGB8888, 1: RGB888, 2: RGB565, 3: RGBA8888, 4: AL44, 5: AL8, 6: ARGB1555, 7: ARGB4444}
+    source: "PK/Device/soc/AE722F80F55D5/include/rtss_hp/soc.h L450-455 (IRQ), L2499-2527 (CDC_Type), L905-929 (layer), L3322 (CDC_BASE) ; SVD <name>CDC</name> L50265 ; PK/drivers/include/cdc.h L52-56, L61, L110-116 ; PK/drivers/source/cdc.c L55-56, L191, L207, L231"
+    notes: "Encodage ACTW/TOTALW = (h<<16)|v cumulés (cdc.c L40-56). Valeur 4 (AL44) et 5 (AL8) déduite de l'ordre de l'enum cdc.h L110-116 ; ARGB4444 = 7 d'après RTE_Device.h L1316-1323 (absent de l'enum cdc.h visible)."
+  dsi:
+    name: MIPI DSI
+    base: 0x49032000
+    size: 0x194            # SVD : addressBlock size 404
+    irq: {error: 343}
+    registers:             # sondé par DPHY_DSI.c DSI_DPHY_Init (spike écran, SPIKE_ECRAN.md §1.2)
+      phy_status: {offset: 0xB0, ready_bits: 0x95}   # PHY_LOCK | STOPSTATECLKLANE | STOPSTATELANE_0 | _1
+    lanes: 2
+    video_mode_type: 2
+    source: "PK/Device/soc/AE722F80F55D5/include/rtss_hp/soc.h L455, L3323 ; SVD <name>DSI</name> L51704 ; PK/Boards/AppKit-e7-aiml/Examples/M55_HE/Blinky/RTE/Device/AE722F80F55D5LS_M55_HE/RTE_Device.h L993, L1014, L1075"
+  panel:
+    controller: ILI9806E          # RTE_MIPI_DSI_ILI9806E_PANEL = 1 (L1037)
+    variant: E43GB_MW405          # RTE_ILI9806E_PANEL_VARIANT = 1 (L1047) ; autres : E43RB_FW405 (0), E50RA_MW550 (2)
+    hactive: 480
+    vactive: 800
+    orientation: portrait         # déduit de 480x800 ; non sourcé explicitement
+    timing: {hsync: 4, hbp: 5, hfp: 5, vsync: 2, vbp: 10, vfp: 10}
+    default_pixel_format: {id: 2, name: RGB565, bytes_per_pixel: 2}
+    sdk_driver: "Driver_CDC200 (CDC200) + pilote panneau ILI9806E ; démo demo_cdc200.c"
+    init_bus: "DSI (commandes via l'hôte DSI) ; non sourcé plus finement"
+    physical_size: non sourcé
+    source: "RTE_Device.h (même dossier que ci-dessus) L1037, L1047-1053, L1083-1123 (480x800 et timings, branche E43RB/E43GB), L1325 (RTE_CDC200_PIXEL_FORMAT 2) ; PK/Boards/Templates/Baremetal/demo_cdc200.c L50-63"
+    notes: "Le commentaire de RTE_Device.h L1324 annonce 'Default: RGB888' mais la valeur définie est 2 (RGB565). La variante E50RA_MW550 est 480x854 (L1127-1167)."
+  framebuffer:
+    section: .bss.lcd_frame_buf
+    region: "NS_REGION_0 (sans SRAM bulk) ou RW_SRAM = SRAM0+SRAM1 combinées (avec __HAS_BULK_SRAM)"
+    address: non sourcé           # adresse fixée par l'éditeur de liens, pas par le SDK
+    size_bytes_default: 768000    # 480*800*2 (RGB565)
+    source: "PK/Boards/AppKit-e7-aiml/Examples/M55_HE/Blinky/RTE/Device/AE722F80F55D5LS_M55_HE/linker_ac6_mram.sct L60-69, L94-100 ; demo_cdc200.c L63, L179"
+  touch:
+    controller: GT911
+    bus: I2C
+    i2c_instance: 1
+    reset_gpio: {port: 4, pin: 0}
+    int_gpio: {port: 9}           # broche : non relevée
+    i2c_address: non sourcé
+    source: "PK/Boards/AppKit-e7-aiml/board_defs.h L89-90, L895-901, L1965-1968 ; pins.h L448"

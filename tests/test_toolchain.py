@@ -179,3 +179,68 @@ def test_env_on_bare_machine_does_not_fail(bare):
 def test_gcc_version_fallback_from_dir_name(bare):
     gcc = _touch(bare / "arm-gnu-toolchain-14.3.rel1" / "bin" / toolchain._exe("arm-none-eabi-gcc"))
     assert toolchain.gcc_version(gcc) == "14.3.1"  # _run renvoie None -> déduit du dossier
+
+
+# --- multiplateforme : sys.platform simulé, aucun outil réel -----------------------------------
+@pytest.mark.parametrize("plat,suffix", [("win32", ".exe"), ("darwin", ""), ("linux", "")])
+def test_exe_suffix_only_on_windows(monkeypatch, plat, suffix):
+    monkeypatch.setattr(toolchain.sys, "platform", plat)
+    assert toolchain._exe("bin/cbuild") == "bin/cbuild" + suffix
+
+
+@pytest.mark.parametrize("plat,expected,forbidden", [
+    ("win32", "install_tools.ps1", "install_tools.sh"),
+    ("darwin", "install_tools.sh", "powershell"),
+    ("linux", "install_tools.sh", "powershell"),
+])
+def test_doctor_hints_depend_on_os(bare, monkeypatch, plat, expected, forbidden):
+    monkeypatch.setattr(toolchain.sys, "platform", plat)
+    hints = " ".join(r["hint"] for r in toolchain.doctor())
+    assert expected in hints and forbidden not in hints
+    assert expected in toolchain.license_hint()
+
+
+def test_renode_binary_macos_falls_back_to_applications(bare, monkeypatch, tmp_path):
+    app = _touch(tmp_path / "Applications" / "Renode.app" / "Contents" / "MacOS" / "renode")
+    monkeypatch.delenv("E7TWIN_RENODE", raising=False)
+    monkeypatch.setattr(toolchain.sys, "platform", "darwin")
+    monkeypatch.setattr(toolchain, "MACOS_RENODE_CANDIDATES", (str(app),))
+    assert toolchain.renode_binary() == app
+    # le PATH passe avant /Applications
+    monkeypatch.setattr(toolchain, "_which", lambda n: "/opt/bin/renode" if n == "renode" else None)
+    assert toolchain.renode_binary() == Path("/opt/bin/renode")
+
+
+def test_renode_binary_macos_candidates_ignored_elsewhere(bare, monkeypatch, tmp_path):
+    app = _touch(tmp_path / "renode")
+    monkeypatch.delenv("E7TWIN_RENODE", raising=False)
+    monkeypatch.setattr(toolchain, "MACOS_RENODE_CANDIDATES", (str(app),))
+    for plat in ("linux", "win32"):
+        monkeypatch.setattr(toolchain.sys, "platform", plat)
+        assert toolchain.renode_binary() is None
+
+
+def test_renode_binary_linux_path_and_override(bare, monkeypatch, tmp_path):
+    monkeypatch.setattr(toolchain.sys, "platform", "linux")
+    monkeypatch.delenv("E7TWIN_RENODE", raising=False)
+    monkeypatch.setattr(toolchain, "_which", lambda n: "/usr/bin/renode" if n == "renode" else None)
+    assert toolchain.renode_binary() == Path("/usr/bin/renode")
+    mine = _touch(tmp_path / "mine" / "renode")
+    monkeypatch.setenv("E7TWIN_RENODE", str(mine))
+    assert toolchain.renode_binary() == mine
+
+
+def test_renode_in_tools_macos_app_bundle(bare, monkeypatch):
+    monkeypatch.setattr(toolchain.sys, "platform", "darwin")
+    monkeypatch.delenv("E7TWIN_RENODE", raising=False)
+    app = _touch(bare / "renode-1.17.0" / "Renode.app" / "Contents" / "MacOS" / "renode")
+    assert toolchain.renode_binary() == app
+
+
+def test_default_pack_root_per_os(monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", "X:/L")
+    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+    monkeypatch.setattr(toolchain.sys, "platform", "win32")
+    assert toolchain._default_pack_root().parts[-2:] == ("Arm", "Packs")
+    monkeypatch.setattr(toolchain.sys, "platform", "darwin")
+    assert toolchain._default_pack_root().parts[-3:] == (".cache", "arm", "packs")

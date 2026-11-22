@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import struct
+import time
 from pathlib import Path
 
 import pytest
@@ -259,6 +260,79 @@ def test_cpu_stats_and_watermark():
         assert s.virtual_time() > 0
 
 
+LOAD_LOOP_HP = Path(__file__).resolve().parent.parent / "build" / "examples" / "load_loop_hp.elf"
+
+
+def _ratio(s, dt=1.0):
+    import time
+    v0, t0 = s.virtual_time(), time.monotonic()
+    time.sleep(dt)
+    return (s.virtual_time() - v0) / (time.monotonic() - t0)
+
+
+@_renode
+@pytest.mark.skipif(not LOAD_LOOP_HP.is_file(), reason="build/examples/load_loop_hp.elf absent")
+def test_set_advance_immediately_hot():
+    with sim.Session() as s:
+        s.load_elf("m55_hp", LOAD_LOOP_HP)
+        s.start()
+        s.run_until("zzz-absent", 8)  # laisse passer le palier de boot
+        assert _ratio(s) < 2.0
+        s.set_advance_immediately(True)
+        assert s.advance_immediately is True
+        assert _ratio(s) > 1.5  # borné par la charge (le WFI seul est accéléré)
+        s.set_advance_immediately(False)
+        # l'avance prise sur l'horloge réelle est d'abord résorbée (temps virtuel figé), puis le ratio revient à 1
+        for _ in range(30):
+            if _ratio(s, 0.5) > 0.8:
+                break
+        r = _ratio(s)
+        assert 0.5 < r < 2.0, r
+        s.set_advance_immediately(True)
+        s.reset()
+        assert s.advance_immediately is True
+
+
+@_renode
+@pytest.mark.skipif(not LOAD_LOOP_HP.is_file(), reason="build/examples/load_loop_hp.elf absent")
+def test_three_successive_loads_each_restart_from_zero():
+    """Recharger une image sur une session déjà démarrée remet la machine à zéro (temps virtuel, état)."""
+    with sim.Session() as s:
+        s.set_advance_immediately(True)
+        for _ in range(3):
+            s.load_elf("m55_hp", LOAD_LOOP_HP)
+            s.start()
+            time.sleep(7)
+            vt = s.virtual_time()
+            assert 0 < vt < 60, vt   # avant le correctif : le temps repartait de l'état précédent
+            assert s.cpu_stats("m55_hp")["instructions"] > 0
+            assert s.read_framebuffer() is None  # écran inactif, mais la capture ne casse pas le monitor
+            s.pause()
+        mon = s._mon
+    assert mon.proc.poll() is not None  # aucun renode.exe orphelin
+
+
+def test_lost_message_format_and_journal_rotation(tmp_path, monkeypatch):
+    p = Path("build/logs/renode_x.log")
+    m = sim.format_lost("[WinError 10054] reset", None, p)
+    assert m.startswith("connexion au monitor perdue : [WinError 10054] reset")
+    assert "encore vivant" in m and m.endswith(f" — journal : {p}")
+    m = sim.format_lost("x", 3, p)
+    assert "terminé (code 3)" in m and m.endswith(str(p))
+    monkeypatch.setattr(sim, "REPO", tmp_path)
+    d = tmp_path / "build" / "logs"
+    d.mkdir(parents=True)
+    for i in range(14):
+        f = d / f"renode_old{i:02d}.log"
+        f.write_text("x")
+        import os
+        os.utime(f, (1000 + i, 1000 + i))
+    new = sim._new_journal(4242)
+    new.write_text("x")
+    left = sorted(f.name for f in d.glob("renode_*.log"))
+    assert len(left) == 10 and new.name in left and "renode_old00.log" not in left and "renode_old13.log" in left
+
+
 # ----------------------------------------------------------------------------- robustesse (cycle 4)
 
 def test_free_port_never_repeats():
@@ -301,3 +375,24 @@ def test_expect_absent_never_returns_0_even_with_parallel_sessions():
     with cf.ThreadPoolExecutor(2) as ex:
         a, b = ex.submit(run, "Hello World!"), ex.submit(run, "TEXTE ABSENT")
         assert (a.result(), b.result()) == (0, 1)
+
+
+def test_kill_tree_posix_uses_killpg_windows_uses_kill(monkeypatch):
+    import os
+    import signal
+    import subprocess
+    from types import SimpleNamespace
+
+    calls = []
+    proc = SimpleNamespace(pid=4242, kill=lambda: calls.append("kill"),
+                           wait=lambda t=None: calls.append("wait"))
+    monkeypatch.setattr(sim.os, "name", "posix")
+    monkeypatch.setattr(os, "getpgid", lambda pid: 99, raising=False)
+    monkeypatch.setattr(os, "killpg", lambda g, s: calls.append(("killpg", g, s)), raising=False)
+    sim._kill_tree(proc)
+    assert ("killpg", 99, signal.SIGTERM) in calls and "kill" not in calls
+
+    calls.clear()
+    monkeypatch.setattr(sim.os, "name", "nt")
+    sim._kill_tree(proc)
+    assert calls == ["kill"]

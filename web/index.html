@@ -8,37 +8,97 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<a class="skip" href="#main">Aller au contenu</a>
+<a class="skip" href="#main" data-i18n="skip">Aller au contenu</a>
 
 <header class="topbar">
   <h1>E7 Twin <span id="board-name" class="muted"></span></h1>
-  <div class="controls" role="group" aria-label="Contrôle de la simulation">
-    <button id="btn-start" type="button">▶ Start</button>
-    <button id="btn-pause" type="button">⏸ Pause</button>
-    <button id="btn-reset" type="button">↺ Reset</button>
+  <div class="right">
+    <span id="ws-ind" class="ws ws-down" role="status" aria-live="polite"><i aria-hidden="true"></i><span id="ws-text">connexion…</span></span>
+    <button id="btn-lang" type="button" aria-label="Langue / Language">EN</button>
+    <button id="btn-quit" type="button" class="quit" data-i18n="quit">Quitter</button>
+    <button id="btn-theme" type="button" data-i18n="theme" data-i18n-aria="theme_aria" aria-label="Basculer le thème clair/sombre">◐ Thème</button>
+  </div>
+</header>
+
+<nav class="tabs" id="nav-top" role="tablist" aria-label="Sections">
+  <button role="tab" id="tab-examples" aria-controls="view-examples" aria-selected="true" data-tab="examples" data-i18n="tab_examples">Exemples</button>
+  <button role="tab" id="tab-import" aria-controls="view-import" aria-selected="false" data-tab="import" data-i18n="tab_import">Importer</button>
+  <button role="tab" id="tab-verify" aria-controls="view-verify" aria-selected="false" data-tab="verify" data-i18n="tab_verify">Vérification</button>
+  <button role="tab" id="tab-sim" aria-controls="view-sim" aria-selected="false" data-tab="sim" data-i18n="tab_sim">Simulation</button>
+</nav>
+<main id="main">
+  <div id="error-banner" class="banner" role="alert" hidden></div>
+
+  <section id="view-examples" role="tabpanel" aria-labelledby="tab-examples">
+    <div class="card">
+      <h2 data-i18n="ex_title">Exemples</h2>
+      <p class="muted" data-i18n="ex_intro">Choisissez un exemple, vérifiez-le ou simulez-le.</p>
+      <p id="ex-msg" class="muted" role="status"></p>
+      <div id="ex-list" class="cards"></div>
+    </div>
+  </section>
+
+  <section id="view-import" role="tabpanel" aria-labelledby="tab-import" hidden>
+    <div class="grid2">
+      <div class="card">
+        <h2 data-i18n="imp_elf_title">Importer un ELF</h2>
+        <div id="drop" class="drop" tabindex="0" role="button" data-i18n="imp_drop">Déposez un fichier .elf ici ou cliquez pour choisir</div>
+        <input id="elf-file" type="file" accept=".elf,application/x-elf" hidden>
+      </div>
+      <div class="card">
+        <h2 data-i18n="imp_src_title">Compiler un main.c</h2>
+        <div class="inline">
+          <label for="src-core" data-i18n="imp_core">Cœur</label>
+          <select id="src-core"><option value="m55_hp">M55-HP</option><option value="m55_he">M55-HE</option></select>
+          <label for="src-name" data-i18n="imp_name">Nom</label>
+          <input id="src-name" type="text" value="mon_projet" autocomplete="off">
+          <input id="src-file" type="file" accept=".c,text/x-csrc">
+        </div>
+        <textarea id="src-text" class="src" rows="12" spellcheck="false" aria-label="main.c">#include &lt;stdio.h&gt;
+
+int main(void) {
+    printf("Hello E7
+");
+    for (;;) {}
+}
+</textarea>
+        <div class="inline"><button id="btn-compile" type="button" data-i18n="imp_compile">Compiler</button></div>
+      </div>
+    </div>
+    <p id="imp-msg" class="muted" role="status"></p>
+    <div id="imp-errors"></div>
+    <details id="imp-log-box" hidden><summary data-i18n="imp_log">Log de compilation</summary><pre id="imp-log" class="console"></pre></details>
+    <div id="imp-result" class="card" hidden></div>
+  </section>
+
+  <section id="view-verify" role="tabpanel" aria-labelledby="tab-verify" hidden>
+    <div class="card">
+      <h2 data-i18n="ver_title">Vérification de compatibilité</h2>
+      <p id="ver-msg" class="muted" role="status" data-i18n="ver_none">Aucune vérification : utilisez « Vérifier » sur un exemple ou un fichier importé.</p>
+      <div id="ver-report"></div>
+    </div>
+  </section>
+
+  <section id="view-sim" role="tabpanel" aria-labelledby="tab-sim" hidden>
+    <div class="controls simbar" role="group" aria-label="Contrôle de la simulation">
+    <button id="btn-start" type="button">▶ <span data-i18n="start">Démarrer</span></button>
+    <button id="btn-pause" type="button">⏸ <span data-i18n="pause">Pause</span></button>
+    <button id="btn-reset" type="button">↺ <span data-i18n="reset">Réinitialiser</span></button>
+    <label id="lbl-accel" class="inline" data-i18n-title="accel_tip" title="Saute les périodes de veille : la simulation va bien plus vite que le temps réel, les animations défilent en accéléré"><input type="checkbox" id="chk-accel" disabled> <span data-i18n="accel">Accéléré</span></label>
     <span id="sim-state" class="badge state-stopped" role="status" aria-live="polite">arrêtée</span>
     <span id="sim-fake" class="badge fake" hidden>données factices</span>
     <span id="sim-time" class="muted" title="Temps virtuel">t = 0.0 s</span>
   </div>
-  <div class="right">
-    <span id="ws-ind" class="ws ws-down" role="status" aria-live="polite"><i aria-hidden="true"></i><span id="ws-text">connexion…</span></span>
-    <button id="btn-theme" type="button" aria-label="Basculer le thème clair/sombre">◐ Thème</button>
-  </div>
-</header>
-
-<nav class="tabs" role="tablist" aria-label="Vues">
-  <button role="tab" id="tab-map" aria-controls="view-map" aria-selected="true" data-view="map">Carte</button>
-  <button role="tab" id="tab-cores" aria-controls="view-cores" aria-selected="false" data-view="cores">Cœurs</button>
-  <button role="tab" id="tab-memory" aria-controls="view-memory" aria-selected="false" data-view="memory">Mémoire</button>
-  <button role="tab" id="tab-timeline" aria-controls="view-timeline" aria-selected="false" data-view="timeline">Timeline</button>
-  <button role="tab" id="tab-compat" aria-controls="view-compat" aria-selected="false" data-view="compat">Compatibilité</button>
-  <button role="tab" id="tab-npu" aria-controls="view-npu" aria-selected="false" data-view="npu">NPU</button>
-</nav>
-
-<main id="main">
-  <div id="error-banner" class="banner" role="alert" hidden></div>
-
-  <section id="view-map" role="tabpanel" aria-labelledby="tab-map">
+    <p id="sim-hint" class="muted" role="status"></p>
+    <nav class="tabs sub" id="nav-sub" role="tablist" aria-label="Vues de simulation">
+      <button role="tab" id="tab-map" aria-controls="view-map" aria-selected="true" data-view="map" data-i18n="sub_map">Carte</button>
+      <button role="tab" id="tab-cores" aria-controls="view-cores" aria-selected="false" data-view="cores" data-i18n="sub_cores">Cœurs</button>
+      <button role="tab" id="tab-memory" aria-controls="view-memory" aria-selected="false" data-view="memory" data-i18n="sub_memory">Mémoire</button>
+      <button role="tab" id="tab-timeline" aria-controls="view-timeline" aria-selected="false" data-view="timeline" data-i18n="sub_timeline">Timeline</button>
+      <button role="tab" id="tab-npu" aria-controls="view-npu" aria-selected="false" data-view="npu" data-i18n="sub_npu">NPU</button>
+      <button role="tab" id="tab-display" aria-controls="view-display" aria-selected="false" data-view="display" data-i18n="sub_display">Écran</button>
+    </nav>
+  <section class="sub" id="view-map" role="tabpanel" aria-labelledby="tab-map">
     <div class="map-layout">
       <div class="card map-card">
         <svg id="map" viewBox="0 0 960 600" role="group" aria-label="Schéma du SoC"></svg>
@@ -51,7 +111,7 @@
     </div>
   </section>
 
-  <section id="view-cores" role="tabpanel" aria-labelledby="tab-cores" hidden>
+  <section class="sub" id="view-cores" role="tabpanel" aria-labelledby="tab-cores" hidden>
     <div id="core-tabs" class="subtabs" role="tablist" aria-label="Cœurs exécutables"></div>
     <div id="core-panel">
       <div class="grid2">
@@ -73,7 +133,7 @@
     </div>
   </section>
 
-  <section id="view-memory" role="tabpanel" aria-labelledby="tab-memory" hidden>
+  <section class="sub" id="view-memory" role="tabpanel" aria-labelledby="tab-memory" hidden>
     <div class="card">
       <h2>Mémoire par région</h2>
       <p class="muted">Barre pleine : statique (ELF). Barre claire : watermark pile/tas. Alerte au-delà de 85 %. Pour la MRAM et l'OSPI la taille est celle de la région complète (pas du slot ATOC).</p>
@@ -81,7 +141,7 @@
     </div>
   </section>
 
-  <section id="view-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden>
+  <section class="sub" id="view-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden>
     <div class="card">
       <h2>Événements</h2>
       <fieldset class="filters"><legend class="sr">Filtres</legend>
@@ -94,21 +154,16 @@
     </div>
   </section>
 
-  <section id="view-compat" role="tabpanel" aria-labelledby="tab-compat" hidden>
+  <section class="sub" id="view-display" role="tabpanel" aria-labelledby="tab-display" hidden>
     <div class="card">
-      <h2>Rapport de compatibilité</h2>
-      <form id="check-form" class="inline">
-        <label for="check-image">Image</label>
-        <input id="check-image" type="text" value="hello_hp" list="check-known" autocomplete="off">
-        <datalist id="check-known"></datalist>
-        <button type="submit">Analyser</button>
-      </form>
-      <p id="check-msg" class="muted" role="status"></p>
-      <div id="check-report"></div>
+      <h2 data-i18n="sub_display">Écran</h2>
+      <div class="panel-frame"><img id="display-img" alt="Display" class="pixelated"></div>
+      <p id="display-state" class="muted"></p>
+      <p class="muted small" data-i18n="disp_note">Émulation : image lue dans le framebuffer, sans timing DSI</p>
     </div>
   </section>
 
-  <section id="view-npu" role="tabpanel" aria-labelledby="tab-npu" hidden>
+  <section class="sub" id="view-npu" role="tabpanel" aria-labelledby="tab-npu" hidden>
     <div class="card">
       <h2>NPU (Ethos-U55)</h2>
       <p class="muted">Estimation Vela, non mesurée sur carte.</p>
@@ -119,6 +174,7 @@
       <p id="npu-msg" class="muted" role="status"></p>
       <div id="npu-report"></div>
     </div>
+  </section>
   </section>
 </main>
 

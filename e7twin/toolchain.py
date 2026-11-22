@@ -1,12 +1,13 @@
 """Localisation et diagnostic de la chaîne de compilation / simulation E7 Twin (agent 02).
 
-Ordre de recherche de chaque outil : d'abord ``tools/`` (installé par ``scripts/install_tools.ps1``,
+Ordre de recherche de chaque outil : d'abord ``tools/`` (installé par ``scripts/install_tools.ps1`` ou ``.sh``,
 versions épinglées), puis le ``PATH``. Le dossier ``tools/`` peut être déplacé avec la variable
 d'environnement ``E7TWIN_TOOLS_DIR``.
 
 API publique :
 
 - :func:`find` — chemin d'un exécutable (``arm-none-eabi-gcc``, ``cbuild``, ``renode``…) ou ``None`` ;
+- :func:`renode_binary` — chemin du binaire Renode (tous OS) ;
 - :func:`env` — variables d'environnement à passer à ``cbuild`` / ``cpackget`` / CMake ;
 - :func:`doctor` — liste de dicts ``{name, found, path, version, hint, required}`` (contrat
   ``docs/INTERFACES.md``), consommée par ``e7twin doctor``.
@@ -38,14 +39,40 @@ REQUIRED_PACKS: tuple[tuple[str, str, str], ...] = (
     ("ARM", "CMSIS-Compiler", "2.1.0"),
 )
 
-INSTALL_HINT = "lancer : powershell -ExecutionPolicy Bypass -File scripts\\install_tools.ps1"
-LICENSE_HINT = (
-    "archive téléchargée mais licence du pack non acceptée : la lire puis relancer "
-    "scripts\\install_tools.ps1 -AcceptPackLicenses"
-)
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
-_IS_WINDOWS = sys.platform.startswith("win")
+
+
+def _is_windows() -> bool:
+    return sys.platform.startswith("win")
+
+
+def _is_macos() -> bool:
+    return sys.platform == "darwin"
+
+
+def install_hint() -> str:
+    """Commande d'installation des outils épinglés, selon l'OS courant."""
+    if _is_windows():
+        return "lancer : powershell -ExecutionPolicy Bypass -File scripts\\install_tools.ps1"
+    return "lancer : bash scripts/install_tools.sh"
+
+
+def license_hint() -> str:
+    script = ("scripts\\install_tools.ps1 -AcceptPackLicenses" if _is_windows()
+              else "scripts/install_tools.sh --accept-pack-licenses")
+    return f"archive téléchargée mais licence du pack non acceptée : la lire puis relancer {script}"
+
+
+# Valeurs calculées à l'import (compatibilité : package.py lit ``toolchain.INSTALL_HINT``).
+INSTALL_HINT = install_hint()
+LICENSE_HINT = license_hint()
+
+#: Emplacements de Renode sous macOS hors PATH. Nom du binaire dans le bundle : à confirmer sur un Mac
+#: (je ne l'ai pas vu documenté localement ; ``Renode.app/Contents/MacOS/renode`` est l'hypothèse).
+MACOS_RENODE_CANDIDATES: tuple[str, ...] = (
+    "/Applications/Renode.app/Contents/MacOS/renode",
+    "/Applications/Renode.app/Contents/MacOS/Renode",  # à confirmer
+)
 
 # Sous-dossiers de tools/ (motifs glob, le plus récent gagne) et nom du binaire relatif.
 _TOOL_LAYOUT: dict[str, tuple[str, str]] = {
@@ -57,7 +84,7 @@ _TOOL_LAYOUT: dict[str, tuple[str, str]] = {
     "cbuild": ("cmsis-toolbox-*", "bin/cbuild"),
     "csolution": ("cmsis-toolbox-*", "bin/csolution"),
     "cpackget": ("cmsis-toolbox-*", "bin/cpackget"),
-    "renode": ("renode-*", "renode"),
+    "renode": ("renode-*", "renode"),  # + variantes macOS : voir _find_in_tools
     "dotnet": ("dotnet*", "dotnet"),
 }
 
@@ -96,7 +123,7 @@ def tools_dir() -> Path:
 
 
 def _exe(rel: str) -> str:
-    return rel + ".exe" if _IS_WINDOWS else rel
+    return rel + ".exe" if _is_windows() else rel
 
 
 def _version_key(p: Path) -> tuple:
@@ -110,9 +137,11 @@ def _find_in_tools(name: str, tdir: Path) -> Path | None:
         return None
     pattern, rel = layout
     for d in sorted(tdir.glob(pattern), key=_version_key, reverse=True):
-        cand = d / _exe(rel)
-        if cand.is_file():
-            return cand
+        rels = [rel] + (["Renode.app/Contents/MacOS/renode"] if name == "renode" and _is_macos() else [])
+        for r in rels:
+            cand = d / _exe(r)
+            if cand.is_file():
+                return cand
     return None
 
 
@@ -123,7 +152,25 @@ def find(name: str, tdir: Path | None = None) -> Path | None:
     if local is not None:
         return local
     on_path = _which(name)
-    return Path(on_path) if on_path else None
+    if on_path:
+        return Path(on_path)
+    if name == "renode" and _is_macos():
+        for c in MACOS_RENODE_CANDIDATES:
+            if Path(c).is_file():
+                return Path(c)
+    return None
+
+
+def renode_binary(tdir: Path | None = None) -> Path | None:
+    """Chemin du binaire Renode, ou ``None``. À utiliser par ``sim.py`` à la place de ``find("renode")``.
+
+    Ordre : ``$E7TWIN_RENODE`` (fichier existant), ``tools/`` (version épinglée), ``renode`` dans le
+    ``PATH`` (Windows, macOS, Linux), puis sous macOS ``/Applications/Renode.app/Contents/MacOS/``.
+    """
+    override = os.environ.get("E7TWIN_RENODE")
+    if override and Path(override).is_file():
+        return Path(override)
+    return find("renode", tdir)
 
 
 def _from_tools(path: Path | None, tdir: Path) -> bool:
@@ -138,7 +185,7 @@ def _from_tools(path: Path | None, tdir: Path) -> bool:
 
 def _default_pack_root() -> Path:
     """Emplacement par défaut de CMSIS-Toolbox quand CMSIS_PACK_ROOT n'est pas défini."""
-    if _IS_WINDOWS:
+    if _is_windows():
         base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
         return Path(base) / "Arm" / "Packs"
     return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "arm" / "packs"
@@ -242,7 +289,7 @@ def env(base: dict[str, str] | None = None, tdir: Path | None = None) -> dict[st
         if ver:
             out["GCC_TOOLCHAIN_" + ver.replace(".", "_")] = str(gcc.parent)
 
-    renode = find("renode", tdir)
+    renode = renode_binary(tdir)
     if renode is not None:
         prepend.append(str(renode.parent))
 
@@ -293,7 +340,7 @@ def doctor(tdir: Path | None = None) -> list[dict]:
             "arm-none-eabi-gcc",
             gcc,
             gcc_version(gcc) if gcc else None,
-            where(gcc) if gcc else f"Arm GNU Toolchain {GCC_VERSION} absente — {INSTALL_HINT}",
+            where(gcc) if gcc else f"Arm GNU Toolchain {GCC_VERSION} absente — {install_hint()}",
         )
     )
 
@@ -305,7 +352,7 @@ def doctor(tdir: Path | None = None) -> list[dict]:
                 tool,
                 p,
                 gcc_version(gcc) if (p and gcc) else None,
-                where(p) if p else f"binutils de l'Arm GNU Toolchain {GCC_VERSION} absents — {INSTALL_HINT}",
+                where(p) if p else f"binutils de l'Arm GNU Toolchain {GCC_VERSION} absents — {install_hint()}",
             )
         )
 
@@ -317,7 +364,7 @@ def doctor(tdir: Path | None = None) -> list[dict]:
                 tool,
                 p,
                 _tool_version(p, ["--version"]) if p else None,
-                where(p) if p else f"CMSIS-Toolbox {CMSIS_TOOLBOX_VERSION} absent — {INSTALL_HINT}",
+                where(p) if p else f"CMSIS-Toolbox {CMSIS_TOOLBOX_VERSION} absent — {install_hint()}",
             )
         )
 
@@ -336,13 +383,13 @@ def doctor(tdir: Path | None = None) -> list[dict]:
         if p is not None:
             hint = f"pack root : {root}"
         elif _pack_downloaded(vendor, name, version, root):
-            hint = LICENSE_HINT
+            hint = license_hint()
         else:
-            hint = f"pack absent de {root} — {INSTALL_HINT}"
+            hint = f"pack absent de {root} — {install_hint()}"
         results.append(_entry(f"pack {vendor}::{name}", p, version if p else None, hint))
 
     # --- Renode
-    renode = find("renode", tdir)
+    renode = renode_binary(tdir)
     rver = None
     if renode is not None:
         rver = _tool_version(renode, ["--version"], re.compile(r"Renode v?(\d+\.\d+\.\d+)"), )
@@ -354,7 +401,7 @@ def doctor(tdir: Path | None = None) -> list[dict]:
             "renode",
             renode,
             rver,
-            where(renode) if renode else f"Renode {RENODE_VERSION} portable absent — {INSTALL_HINT}",
+            where(renode) if renode else f"Renode {RENODE_VERSION} portable absent — {install_hint()}",
         )
     )
 
@@ -385,7 +432,7 @@ def doctor(tdir: Path | None = None) -> list[dict]:
                 dver,
                 where(dotnet)
                 if dotnet
-                else "aucun runtime .NET trouvé : utiliser le Renode portable (runtime embarqué) — " + INSTALL_HINT,
+                else "aucun runtime .NET trouvé : utiliser le Renode portable (runtime embarqué) — " + install_hint(),
                 required=False,
             )
         )

@@ -380,10 +380,21 @@ def _usage(b: board_mod.Board, core_id: str, segs: list[_Seg],
     canon = [r for r in regions if target(r) is r]
     data: dict[str, list[tuple[int, int]]] = {r.name: [] for r in canon}
     resv: dict[str, list[tuple[int, int]]] = {r.name: [] for r in canon}
+    # Octets hors de toute région : sans eux, un dépassement serait tronqué à la fin de la région
+    # (ex. 820 % affiché comme 100 %). Ils sont attribués à la région où commence le segment.
+    all_regions = _merge([(r.base, r.end) for r in regions])
     for s in segs:
         for addr, size in [(s.vaddr, s.memsz)] + ([(s.paddr, s.filesz)] if s.filesz else []):
             for name, lo, hi in project(addr, size):
                 data[name].append((lo, hi))
+            if size <= 0:
+                continue
+            owner = next((target(r) for r in regions if r.base <= addr < r.end), None)
+            if owner is None:
+                continue  # début hors de toute région : déjà signalé par la règle placement
+            for lo, hi in _subtract(_merge([(addr, addr + size)]), all_regions):
+                # Région canonique : ses coordonnées sont absolues, sans conversion d'alias.
+                data[owner.name].append((lo, hi))
     for lo, hi in reserves or []:
         for name, a, z in project(lo, hi - lo):
             resv[name].append((a, z))

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from e7twin import board as board_mod
+from e7twin import toolchain
 from e7twin.simsource import SimSource
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -262,5 +263,61 @@ def test_real_profile_hello_hp():
         assert 0 < len(p["functions"]) <= 20
         assert p["functions"][0]["instructions"] > 0 and 0 < p["functions"][0]["pct"] <= 100
         assert any("Reset_Handler" in f["name"] or "SystemInit" in f["name"] for f in p["functions"])
+    finally:
+        s.close()
+
+
+def test_error_then_load_recovers_with_new_session(tmp_path):
+    """Après une erreur de monitor, un nouveau `load` repart sur une Session neuve (sans redémarrer le serveur)."""
+    elf = tmp_path / "x.elf"
+    elf.write_bytes(b"")
+    sessions: list[FakeSession] = []
+
+    def factory():
+        sessions.append(FakeSession())
+        return sessions[-1]
+
+    s = SimSource(session_factory=factory, check_fn=lambda p, c: SimpleNamespace(regions_usage={}), period=0.01)
+    try:
+        s.load("m55_hp", str(elf))
+        s.start()
+        sessions[0].fail = True
+        for _ in range(100):
+            if s.status()["state"] == "error":
+                break
+            time.sleep(0.02)
+        assert s.status()["state"] == "error"
+        s.load("m55_hp", str(elf))
+        assert len(sessions) == 2 and sessions[0].closed
+        s.start()
+        assert s.status()["state"] == "running" and "message" not in s.status()
+    finally:
+        s.close()
+
+
+@pytest.mark.renode
+@pytest.mark.skipif(toolchain.find("renode") is None, reason="Renode absent")
+def test_real_ui_sequence_accelerated_and_reloads():
+    """Séquence de la page : accéléré + captures + profil + métriques ~5 s, puis 3 rechargements qui démarrent
+    tous (régression : recharger sur une machine déjà démarrée repartait d'un état sale)."""
+    ex = Path(__file__).resolve().parent.parent / "build" / "examples"
+    elfs = [ex / "display_hp.elf", ex / "load_loop_hp.elf", ex / "display_hp.elf"]
+    if not all(e.is_file() for e in elfs):
+        pytest.skip("ELF d'exemple absents")
+    s = SimSource()
+    try:
+        for i, elf in enumerate(elfs):
+            s.load("m55_hp", str(elf))
+            s.start()
+            s.set_speed(True)
+            end = time.time() + 5
+            while time.time() < end:
+                s.framebuffer()
+                s.profile("m55_hp")
+                assert s.status()["state"] == "running", s.status()
+                time.sleep(0.2)
+            assert s.status()["t_virtual_s"] > 0.2, s.status()  # chaque rechargement a bien démarré
+            s.set_speed(False)
+        assert s.status()["state"] == "running"
     finally:
         s.close()

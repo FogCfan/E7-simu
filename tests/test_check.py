@@ -132,6 +132,18 @@ def test_occupancy_90pct_warns(elfs):
 
 
 @pytest.mark.toolchain
+def test_overflow_percentage_is_not_capped(elfs):
+    """Un dépassement doit afficher son vrai pourcentage (> 100 %), pas 100 %."""
+    rep = check.run(elfs["he_dtcm_overflow"], HE)
+    u = rep.regions_usage["dtcm_he"]
+    assert u.pct > 100.0 and u.data_pct > 100.0
+    assert 117.0 < u.pct < 118.0  # 300 Kio de bss (307 204 o) dans une DTCM de 256 Kio ; ancien code : 100 %
+    assert _rule(rep, "usage").verdict == "FAIL"
+    assert f"{u.data_pct:.1f} %" in _rule(rep, "usage").message
+    assert rep.verdict == "FAIL"
+
+
+@pytest.mark.toolchain
 def test_sp_outside_ram_fails_boot(elfs):
     rep = check.run(elfs["bad_sp"], HP)
     b = _rule(rep, "boot")

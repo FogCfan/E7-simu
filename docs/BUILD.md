@@ -271,6 +271,15 @@ check m55_he : idem (atoc PASS : HE_APP adresse = début de l'image, dans son sl
 La règle `stack` est **évaluée** : pile pire cas 392 o sur 8 192 o. Elle est en WARN parce que c'est une borne inférieure :
 des handlers d'IRQ appellent par `blx rN` (UART/GPIO/MHU), ce que le graphe d'appels ne peut pas suivre.
 
+### `build.build_source(main_c, core, name=None, out_dir="build/uploads") -> dict`
+
+Import d'un `main.c` unique (interface web). `main_c` : chemin ou contenu C ; `core` : `m55_hp|m55_he`.
+Copie le projet modèle `examples/hello_hp|he` (mêmes packs, flags, placement, `-fstack-usage`) dans
+`<out_dir>/<nom>/sol`, y remplace `main.c`, lance `cbuild`. Le nom est assaini (`[A-Za-z0-9_-]`, 40 car.) et
+rien n'est écrit hors de `<out_dir>`. Retourne `{ok, elf, su_dir, log, errors}` : `log` = sortie cbuild
+(tronquée à 20 000 car.), `errors` = `[{file, line, col, message}]` extraits de GCC. Ne lève pas pour une
+erreur de compilation ou d'outil manquant (`ok` False). Compte ~3 s pour un `main.c` simple.
+
 ## 6. Tests
 
 ```powershell

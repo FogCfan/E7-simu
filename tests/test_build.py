@@ -254,3 +254,42 @@ def test_real_sdk_hello_builds_and_check_evaluates_stack(real_tools, short_dir):
     assert next((elf.parent / "su").glob("*.su"))
     rep = check.run(elf, "m55_hp")
     assert next(r for r in rep.rules if r.id == "stack").verdict != "SKIP"
+
+
+# --- build_source : import d'un main.c unique ---------------------------------------------------
+def test_sanitize_name_and_gcc_error_parsing():
+    assert build.sanitize_name("../../evil name!.c") == "evil_name"
+    assert build.sanitize_name("") == "upload"
+    log = "C:/x/main.c:7:5: error: expected ';' before '}' token\nmain.c:2:1: warning: x"
+    assert build.parse_gcc_errors(log) == [
+        {"file": "main.c", "line": 7, "col": 5, "message": "expected ';' before '}' token"}]
+
+
+def _upload_ready():
+    if not all(r["found"] for r in toolchain.doctor() if r["name"] in ("arm-none-eabi-gcc", "cbuild", "csolution")
+               or r["name"].startswith("pack ")):
+        pytest.skip("toolchain / packs absents (scripts/install_tools.ps1)")
+
+
+@pytest.mark.toolchain
+def test_real_build_source_valid_passes_check(short_dir):
+    _upload_ready()
+    src = '#include <stdio.h>\nint main(void){ puts("coucou"); for(;;){} }\n'
+    r = build.build_source(src, "m55_hp", "up_ok", short_dir)
+    assert r["ok"], r["log"][-1500:]
+    assert Path(r["elf"]).is_file() and r["su_dir"]
+    assert check.run(r["elf"], "m55_hp").verdict != "FAIL"
+
+
+@pytest.mark.toolchain
+def test_real_build_source_syntax_error_reports_line(short_dir):
+    _upload_ready()
+    src = "#include <stdio.h>\nint main(void){\n  int x = ;\n  for(;;){}\n}\n"
+    r = build.build_source(src, "m55_he", "up_ko", short_dir)
+    assert r["ok"] is False and r["elf"] is None
+    assert any(e["line"] == 3 and e["file"] == "main.c" for e in r["errors"]), r["errors"]
+
+
+def test_build_source_rejects_bad_core(tmp_path):
+    r = build.build_source("int main(void){}", "a32", "x", tmp_path)
+    assert r["ok"] is False and "cœur" in r["log"]
