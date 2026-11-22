@@ -14,14 +14,16 @@
   <h1>E7 Twin <span id="board-name" class="muted"></span></h1>
   <div class="right">
     <span id="ws-ind" class="ws ws-down" role="status" aria-live="polite"><i aria-hidden="true"></i><span id="ws-text">connexion…</span></span>
-    <button id="btn-lang" type="button" aria-label="Langue / Language">EN</button>
+    <select id="btn-lang" aria-label="Langue / Language / 语言"><option value="fr">FR</option><option value="en">EN</option><option value="zh">中文</option></select>
     <button id="btn-quit" type="button" class="quit" data-i18n="quit">Quitter</button>
     <button id="btn-theme" type="button" data-i18n="theme" data-i18n-aria="theme_aria" aria-label="Basculer le thème clair/sombre">◐ Thème</button>
   </div>
 </header>
 
 <nav class="tabs" id="nav-top" role="tablist" aria-label="Sections">
-  <button role="tab" id="tab-examples" aria-controls="view-examples" aria-selected="true" data-tab="examples" data-i18n="tab_examples">Exemples</button>
+  <button role="tab" id="tab-programs" aria-controls="view-programs" aria-selected="true" data-tab="programs" data-i18n="tab_programs">Programmes</button>
+  <button role="tab" id="tab-tests" aria-controls="view-tests" aria-selected="false" data-tab="tests" data-i18n="tab_tests">Tests</button>
+  <button role="tab" id="tab-build" aria-controls="view-build" aria-selected="false" data-tab="build" data-i18n="tab_build">Compilation</button>
   <button role="tab" id="tab-import" aria-controls="view-import" aria-selected="false" data-tab="import" data-i18n="tab_import">Importer</button>
   <button role="tab" id="tab-verify" aria-controls="view-verify" aria-selected="false" data-tab="verify" data-i18n="tab_verify">Vérification</button>
   <button role="tab" id="tab-sim" aria-controls="view-sim" aria-selected="false" data-tab="sim" data-i18n="tab_sim">Simulation</button>
@@ -29,22 +31,30 @@
 <main id="main">
   <div id="error-banner" class="banner" role="alert" hidden></div>
 
-  <section id="view-examples" role="tabpanel" aria-labelledby="tab-examples">
-    <div class="card">
-      <h2 data-i18n="ex_title">Exemples</h2>
-      <p class="muted" data-i18n="ex_intro">Choisissez un exemple, vérifiez-le ou simulez-le.</p>
-      <p id="ex-msg" class="muted" role="status"></p>
-      <div id="ex-list" class="cards"></div>
-    </div>
+  <section id="view-programs" role="tabpanel" aria-labelledby="tab-programs">
+    <nav class="tabs sub" id="nav-prog" role="tablist" aria-label="Programmes">
+      <button role="tab" id="tab-examples" aria-controls="view-examples" aria-selected="true" data-pview="examples" data-i18n="sub_examples">Exemples</button>
+      <button role="tab" id="tab-mine" aria-controls="view-mine" aria-selected="false" data-pview="mine" data-i18n="sub_mine">Mes programmes</button>
+    </nav>
+    <section class="sub" id="view-examples" role="tabpanel" aria-labelledby="tab-examples">
+      <div class="card">
+        <h2 data-i18n="ex_title">Exemples</h2>
+        <p class="muted" data-i18n="ex_intro">Choisissez un exemple, vérifiez-le ou simulez-le.</p>
+        <p id="ex-msg" class="muted" role="status"></p>
+        <div id="ex-list" class="cards"></div>
+      </div>
+    </section>
+
+    <section class="sub" id="view-mine" role="tabpanel" aria-labelledby="tab-mine" hidden>
+      <div class="card">
+        <h2 data-i18n="sub_mine">Mes programmes</h2>
+        <p id="mine-msg" class="muted" role="status"></p>
+        <div id="mine-list" class="cards"></div>
+      </div>
+    </section>
   </section>
 
-  <section id="view-import" role="tabpanel" aria-labelledby="tab-import" hidden>
-    <div class="grid2">
-      <div class="card">
-        <h2 data-i18n="imp_elf_title">Importer un ELF</h2>
-        <div id="drop" class="drop" tabindex="0" role="button" data-i18n="imp_drop">Déposez un fichier .elf ici ou cliquez pour choisir</div>
-        <input id="elf-file" type="file" accept=".elf,application/x-elf" hidden>
-      </div>
+  <section id="view-build" role="tabpanel" aria-labelledby="tab-build" hidden>
       <div class="card">
         <h2 data-i18n="imp_src_title">Compiler un main.c</h2>
         <div class="inline">
@@ -57,18 +67,35 @@
         <textarea id="src-text" class="src" rows="12" spellcheck="false" aria-label="main.c">#include &lt;stdio.h&gt;
 
 int main(void) {
-    printf("Hello E7
-");
+    printf("Hello E7\n");
     for (;;) {}
 }
 </textarea>
         <div class="inline"><button id="btn-compile" type="button" data-i18n="imp_compile">Compiler</button></div>
       </div>
+    <p id="bld-msg" class="muted" role="status"></p>
+    <div id="bld-errors"></div>
+    <details id="bld-log-box" hidden><summary data-i18n="imp_log">Log de compilation</summary><pre id="bld-log" class="console"></pre></details>
+    <div id="bld-result" class="card" hidden></div>
+  </section>
+
+  <section id="view-import" role="tabpanel" aria-labelledby="tab-import" hidden>
+    <div class="card">
+      <h2 data-i18n="imp_elf_title">Importer un ELF</h2>
+      <div id="drop" class="drop" tabindex="0" role="button" data-i18n="imp_drop">Déposez un fichier .elf ici ou cliquez pour choisir</div>
+      <input id="elf-file" type="file" accept=".elf,application/x-elf" hidden>
     </div>
     <p id="imp-msg" class="muted" role="status"></p>
-    <div id="imp-errors"></div>
-    <details id="imp-log-box" hidden><summary data-i18n="imp_log">Log de compilation</summary><pre id="imp-log" class="console"></pre></details>
     <div id="imp-result" class="card" hidden></div>
+  </section>
+
+  <section id="view-tests" role="tabpanel" aria-labelledby="tab-tests" hidden>
+    <div class="card">
+      <h2 data-i18n="tab_tests">Tests</h2>
+      <p class="muted" data-i18n="tst_help">Lancez le test ici sur le simulateur, puis le même programme sur la carte. La ligne SIG doit être identique.</p>
+      <p id="tst-msg" class="muted" role="status"></p>
+      <div id="tst-list" class="cards"></div>
+    </div>
   </section>
 
   <section id="view-verify" role="tabpanel" aria-labelledby="tab-verify" hidden>

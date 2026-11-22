@@ -493,3 +493,131 @@ def test_static_no_cache(client):
         assert r.status_code == 200
         assert r.headers["cache-control"] == "no-cache"
     assert "no-cache" not in client.get("/api/board").headers.get("cache-control", "")
+
+
+# ---- « Mes programmes » ----------------------------------------------------------------------------------
+def test_programs_list_source_delete(gui, tmp_path):
+    import os
+    up = tmp_path / "up"
+    assert gui.get("/api/programs").json() == []
+    up.mkdir()
+    (up / "imp_hp.elf").write_bytes(b"\x7fELF-fake")
+    (up / "cmp.c").write_text("int main(void){return 0;}\n", encoding="utf-8")
+    (up / "cmp" / "out" / "m55_hp").mkdir(parents=True)
+    (up / "cmp" / "out" / "m55_hp" / "cmp.elf").write_bytes(b"\x7fELF-fake")
+    (up / "cmp" / "out" / "m55_hp" / "cmp.map").write_text("x")
+    (up / "broken.c").write_text("x")  # compilation échouée : pas d'ELF -> non listé
+    os.utime(up / "imp_hp.elf", (1, 1))
+    progs = gui.get("/api/programs").json()
+    assert [p["name"] for p in progs] == ["cmp", "imp_hp"]  # plus récent d'abord
+    by = {p["name"]: p for p in progs}
+    assert by["cmp"]["origin"] == "compiled" and by["cmp"]["has_source"] and by["cmp"]["id"] == "uploads/cmp"
+    assert by["imp_hp"]["origin"] == "imported" and not by["imp_hp"]["has_source"]
+    assert by["imp_hp"]["core_guess"] == "m55_hp" and isinstance(by["cmp"]["mtime"], float)
+    r = gui.get("/api/programs/cmp/source")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/plain") and "main" in r.text
+    assert gui.get("/api/programs/imp_hp/source").status_code == 404
+    assert gui.delete("/api/programs/nope").status_code == 404
+    assert gui.delete("/api/programs/cmp").json() == {"ok": True}
+    assert not (up / "cmp.c").exists() and not (up / "cmp").exists()
+    assert [p["name"] for p in gui.get("/api/programs").json()] == ["imp_hp"]
+
+
+def test_programs_delete_409_and_bad_names(gui, tmp_path, monkeypatch):
+    from e7twin import server
+    up = tmp_path / "up"
+    up.mkdir()
+    (up / "a.elf").write_bytes(b"x")
+    (up / "b.elf").write_bytes(b"x")
+    (tmp_path / "secret.c").write_text("keep")
+    src = gui.app.state.source
+    monkeypatch.setattr(src, "status", lambda: {"images": {"m55_hp": str(up / "a.elf")}, "state": "paused"})
+    assert gui.delete("/api/programs/a").status_code == 409 and (up / "a.elf").exists()
+    server._building.add("b")
+    try:
+        assert gui.delete("/api/programs/b").status_code == 409 and (up / "b.elf").exists()
+    finally:
+        server._building.discard("b")
+    for bad in ("..%2Fsecret", "%2E%2E", "a%5Cb", ".hidden", "a%2F..%2Fsecret"):
+        assert gui.delete(f"/api/programs/{bad}").status_code in (400, 404, 405), bad
+        assert gui.get(f"/api/programs/{bad}/source").status_code in (400, 404, 405), bad
+    assert (tmp_path / "secret.c").read_text() == "keep"
+
+
+# ---- build d'un exemple -------------------------------------------------------------------------------
+def test_example_build_404_409_and_success(gui, tmp_path, monkeypatch):
+    from e7twin import server
+    assert gui.post("/api/examples/nope_xyz/build").status_code == 404
+    name = next(e["name"] for e in gui.get("/api/examples").json())
+    server._building.add(f"example:{name}")
+    try:
+        assert gui.post(f"/api/examples/{name}/build").status_code == 409
+    finally:
+        server._building.discard(f"example:{name}")
+    seen = {}
+    def fake(projects):
+        seen["p"] = projects
+        for p in projects:
+            (tmp_path / f"{p}.elf").write_bytes(b"x")
+        return 0, "\n".join(f"l{i}" for i in range(100))
+    monkeypatch.setattr(server, "_run_build_all", fake)
+    monkeypatch.setattr(server, "EXAMPLES_DIR", tmp_path)
+    monkeypatch.setattr(server, "ROOT", tmp_path)
+    r = gui.post(f"/api/examples/{name}/build")
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["ok"] and j["projects"] == seen["p"] and j["example"]["name"] == name
+    assert j["log_tail"].splitlines()[-1] == "l99" and len(j["log_tail"].splitlines()) == 40
+    monkeypatch.setattr(server, "_run_build_all", lambda p: (1, "boom"))
+    for f in tmp_path.glob("*.elf"):
+        f.unlink()
+    assert gui.post(f"/api/examples/{name}/build").json()["ok"] is False
+
+
+def test_readme_line_without_project_is_ignored(gui, tmp_path, monkeypatch):
+    from e7twin import server
+    ex = tmp_path / "ex"
+    (ex / "real_hp").mkdir(parents=True)
+    (ex / "real_hp" / "real_hp.cproject.yml").write_text("x")
+    (ex / "README.md").write_text("- real_hp — vrai — HP\n- om — fantôme — HP\n", encoding="utf-8")
+    monkeypatch.setattr(server, "SRC_EXAMPLES_DIR", ex)
+    monkeypatch.setattr(server, "EXAMPLES_DIR", tmp_path / "nobuild")
+    assert [e["name"] for e in gui.get("/api/examples").json()] == ["real_hp"]
+    (ex / "README.md").write_text("| `real_hp` | HP | `check` en tableau |\n", encoding="utf-8")
+    assert gui.get("/api/examples").json()[0]["description"] == "`check` en tableau"
+    (ex / "README.md").write_text("- real_hp — `check` sans FAIL, `x` — HP\n- om — fantôme — HP\n", encoding="utf-8")
+    assert gui.get("/api/examples").json()[0]["description"] == "`check` sans FAIL, `x`"
+    called = []
+    monkeypatch.setattr(server, "_run_build_all", lambda p: called.append(p) or (0, ""))
+    assert gui.post("/api/examples/om/build").status_code == 404
+    assert called == []  # 404 avant toute compilation
+
+
+# ---- onglet Tests (parité carte/simu) ----------------------------------------------------------------------
+def test_tests_routes(gui, tmp_path, monkeypatch):
+    from e7twin import server
+    ex = tmp_path / "ex"
+    for n in ("parity_hp", "hello_hp"):
+        (ex / n).mkdir(parents=True)
+        (ex / n / f"{n}.cproject.yml").write_text("x")
+    (ex / "README.md").write_text("- parity_hp — parité — HP\n- hello_hp — hello — HP\n", encoding="utf-8")
+    build = tmp_path / "build"
+    build.mkdir()
+    monkeypatch.setattr(server, "SRC_EXAMPLES_DIR", ex)
+    monkeypatch.setattr(server, "EXAMPLES_DIR", build)
+    monkeypatch.setattr(server, "ROOT", tmp_path)
+    assert [t["name"] for t in gui.get("/api/tests").json()] == ["parity_hp"]
+    assert gui.post("/api/tests/hello_hp/run").status_code == 404
+    assert gui.post("/api/tests/parity_hp/run").status_code == 409  # non compilé
+    (build / "parity_hp.elf").write_bytes(b"x")
+    server._building.add("test:parity_hp")
+    try:
+        assert gui.post("/api/tests/parity_hp/run").status_code == 409
+    finally:
+        server._building.discard("test:parity_hp")
+    monkeypatch.setattr(server, "_run_test_elf", lambda elf, core, timeout=120.0: {
+        "ok": True, "sig": "E1C0E658", "score": "10/10", "uart": "SIG E1C0E658  10/10 OK", "duration_s": 1.0})
+    monkeypatch.setattr(server, "_board_cmd", lambda elf: None)
+    j = gui.post("/api/tests/parity_hp/run").json()
+    assert j["ok"] and j["sig"] == "E1C0E658" and j["core"] == "m55_hp" and j["board_cmd"] is None
+    assert "test:parity_hp" not in server._building

@@ -11,7 +11,7 @@
     sample: null, hist: {},            // hist[core] = {t:[], load:[], mips:[]}
     uart: {},                          // uart[core] = [lines]
     events: [], seen: new Set(),
-    tab: "examples", view: "map", core: null, sel: null, charts: {}, lastT: -1, profTimer: null,
+    tab: "programs", pview: "examples", view: "map", core: null, sel: null, charts: {}, lastT: -1, profTimer: null,
   };
 
   // ---------- utilitaires ----------
@@ -51,11 +51,14 @@
   const I18N = {
     fr: {
       theme: "◐ Thème", theme_aria: "Basculer le thème clair/sombre", skip: "Aller au contenu",
-      tab_examples: "Exemples", tab_import: "Importer", tab_verify: "Vérification", tab_sim: "Simulation",
+      tab_programs: "Programmes", tab_build: "Compilation", sub_examples: "Exemples", sub_mine: "Mes programmes", mine_none: "Aucun programme : compilez un main.c dans Compilation ou importez un ELF dans Importer.", mine_compiled: "compilé", mine_imported: "importé", mine_edit: "Modifier", mine_delete: "Supprimer", mine_confirm: "Supprimer « {0} » ?", mine_added: "Ajouté à Mes programmes.", mine_view: "Voir dans Mes programmes", mine_loading: "Chargement…", tab_import: "Importer", tab_verify: "Vérification", tab_sim: "Simulation",
       sub_map: "Carte", sub_cores: "Cœurs", sub_memory: "Mémoire", sub_timeline: "Timeline", sub_npu: "NPU",
+      ws_up: "connecté", ws_connecting: "connexion…", ws_down: "déconnecté — nouvelle tentative dans {0} s", 
+      tab_tests: "Tests", tst_help: "Lancez le test ici sur le simulateur, puis le même programme sur la carte. La ligne SIG doit être identique.", tst_none: "Aucun test (exemples nommés parity_*).", tst_run: "Lancer sur le simulateur", tst_running: "Exécution… (jusqu'à 2 min)", tst_ok: "OK", tst_fail: "ÉCHEC", tst_score: "Score", tst_duration: "Durée", tst_copy: "Copier", tst_copied: "Copié", tst_uart: "Sortie UART", tst_board: "Sur la carte", tst_no_cmd: "Aucune commande disponible pour ce test.", tst_flash_note: "Le flash de la carte est fait par l'humain, jamais par l'outil.", tst_board_sig: "SIG relevée sur la carte", tst_same: "Identique", tst_diff: "Différent",
       start: "Démarrer", pause: "Pause", reset: "Réinitialiser",
       state_stopped: "arrêtée", state_running: "en marche", state_paused: "en pause", state_error: "erreur",
       ex_title: "Exemples", ex_intro: "Choisissez un exemple, vérifiez-le ou simulez-le.",
+      ex_build: "Compiler", ex_building: "Compilation… (peut prendre une minute)", ex_build_all: "Compiler les exemples manquants ({0})", ex_progress: "{0}/{1} : {2}", ex_build_fail: "La compilation a échoué.", ex_build_err: "Erreur : {0}", ex_log: "Journal de compilation",
       ex_loading: "Chargement des exemples…", ex_none: "Aucun exemple disponible.",
       ex_built: "compilé", ex_notbuilt: "non compilé", ex_cores: "Cœurs", ex_verify: "Vérifier", ex_simulate: "Simuler",
       imp_elf_title: "Importer un ELF", imp_drop: "Déposez un fichier .elf ici ou cliquez pour choisir",
@@ -79,11 +82,14 @@
     },
     en: {
       theme: "◐ Theme", theme_aria: "Toggle light/dark theme", skip: "Skip to content",
-      tab_examples: "Examples", tab_import: "Import", tab_verify: "Check", tab_sim: "Simulation",
+      tab_programs: "Programs", tab_build: "Build", sub_examples: "Examples", sub_mine: "My programs", mine_none: "No program yet: compile a main.c in Build or import an ELF in Import.", mine_compiled: "compiled", mine_imported: "imported", mine_edit: "Edit", mine_delete: "Delete", mine_confirm: "Delete “{0}”?", mine_added: "Added to My programs.", mine_view: "View in My programs", mine_loading: "Loading…", tab_import: "Import", tab_verify: "Check", tab_sim: "Simulation",
       sub_map: "Map", sub_cores: "Cores", sub_memory: "Memory", sub_timeline: "Timeline", sub_npu: "NPU",
+      ws_up: "connected", ws_connecting: "connecting…", ws_down: "disconnected — retrying in {0} s", 
+      tab_tests: "Tests", tst_help: "Run the test here on the simulator, then the same program on the board. The SIG line must be identical.", tst_none: "No test (examples named parity_*).", tst_run: "Run on the simulator", tst_running: "Running… (up to 2 min)", tst_ok: "OK", tst_fail: "FAIL", tst_score: "Score", tst_duration: "Duration", tst_copy: "Copy", tst_copied: "Copied", tst_uart: "UART output", tst_board: "On the board", tst_no_cmd: "No command available for this test.", tst_flash_note: "Flashing the board is done by a human, never by the tool.", tst_board_sig: "SIG read on the board", tst_same: "Identical", tst_diff: "Different",
       start: "Start", pause: "Pause", reset: "Reset",
       state_stopped: "stopped", state_running: "running", state_paused: "paused", state_error: "error",
       ex_title: "Examples", ex_intro: "Pick an example, check it or simulate it.",
+      ex_build: "Build", ex_building: "Building… (may take a minute)", ex_build_all: "Build missing examples ({0})", ex_progress: "{0}/{1}: {2}", ex_build_fail: "The build failed.", ex_build_err: "Error: {0}", ex_log: "Build log",
       ex_loading: "Loading examples…", ex_none: "No example available.",
       ex_built: "built", ex_notbuilt: "not built", ex_cores: "Cores", ex_verify: "Check", ex_simulate: "Simulate",
       imp_elf_title: "Import an ELF", imp_drop: "Drop an .elf file here or click to choose",
@@ -105,23 +111,58 @@
       quit_done: "E7 Twin is stopped. You can close this tab.",
       npu_none: "No report: run `e7twin npu <model.tflite>`.",
     },
+    zh: {
+      theme: "◐ 主题", theme_aria: "切换浅色/深色主题", skip: "跳到内容",
+      tab_programs: "程序", tab_build: "编译", sub_examples: "示例", sub_mine: "我的程序", mine_none: "暂无程序：请在“编译”中编译 main.c，或在“导入”中导入 ELF。", mine_compiled: "已编译", mine_imported: "已导入", mine_edit: "编辑", mine_delete: "删除", mine_confirm: "删除“{0}”？", mine_added: "已添加到“我的程序”。", mine_view: "在“我的程序”中查看", mine_loading: "加载中…", tab_import: "导入", tab_verify: "检查", tab_sim: "仿真",
+      sub_map: "总览", sub_cores: "核心", sub_memory: "内存", sub_timeline: "时间线", sub_npu: "NPU",
+      ws_up: "已连接", ws_connecting: "正在连接…", ws_down: "已断开——{0} 秒后重试", 
+      tab_tests: "测试", tst_help: "先在仿真器上运行测试，再在开发板上运行同一程序。SIG 行必须一致。", tst_none: "没有测试（名称为 parity_* 的示例）。", tst_run: "在仿真器上运行", tst_running: "正在运行…（最长 2 分钟）", tst_ok: "通过", tst_fail: "失败", tst_score: "得分", tst_duration: "耗时", tst_copy: "复制", tst_copied: "已复制", tst_uart: "UART 输出", tst_board: "在开发板上", tst_no_cmd: "此测试没有可用的命令。", tst_flash_note: "烧录开发板由人工完成，工具绝不会自动烧录。", tst_board_sig: "开发板上读到的 SIG", tst_same: "一致", tst_diff: "不一致",
+      start: "开始", pause: "暂停", reset: "复位",
+      state_stopped: "已停止", state_running: "运行中", state_paused: "已暂停", state_error: "错误",
+      ex_title: "示例", ex_intro: "选择一个示例，进行检查或仿真。",
+      ex_build: "编译", ex_building: "正在编译…（可能需要一分钟）", ex_build_all: "编译缺失的示例（{0}）", ex_progress: "{0}/{1}：{2}", ex_build_fail: "编译失败。", ex_build_err: "错误：{0}", ex_log: "编译日志",
+      ex_loading: "正在加载示例…", ex_none: "没有可用的示例。",
+      ex_built: "已编译", ex_notbuilt: "未编译", ex_cores: "核心", ex_verify: "检查", ex_simulate: "仿真",
+      imp_elf_title: "导入 ELF", imp_drop: "将 .elf 文件拖到此处，或点击选择",
+      imp_src_title: "编译 main.c", imp_core: "核心", imp_name: "名称", imp_compile: "编译",
+      imp_log: "编译日志", imp_uploading: "正在上传“{0}”…", imp_compiling: "正在编译…",
+      imp_ok: "ELF 已就绪：{0}", imp_failed: "编译失败。", imp_err_line: "第 {0} 行",
+      imp_need_elf: "请选择一个 .elf 文件。", imp_empty_src: "源代码为空。",
+      ver_title: "兼容性检查", ver_none: "尚未检查：请对示例或已导入的文件点击“检查”。",
+      ver_running: "正在检查“{0}”…", ver_verdict: "总体结论", ver_report: "打开 HTML 报告",
+      ver_rule: "规则", ver_v: "结论", ver_measured: "实测值", ver_limit: "限制", ver_expl: "说明",
+      ver_regions: "各区域占用情况",
+      sim_loading: "正在将“{0}”加载到 {1}…", sim_started: "仿真已开始。",
+      err_action: "操作失败", err_http: "错误", err_network: "无法连接服务器。",
+      sub_display: "显示屏", disp_note: "仿真：从帧缓冲区读取图像，不含 DSI 时序",
+      disp_off: "显示屏未启用——固件尚未配置 CDC200 控制器",
+      disp_state: "{0}×{1} · 格式 {2} · 帧缓冲区 {3} · {4} 帧/秒",
+      accel: "加速", accel_tip: "跳过空闲等待：仿真速度远快于实时，动画会快进播放",
+      quit: "退出", quit_confirm: "停止 E7 Twin（仿真和服务器）？",
+      quit_done: "E7 Twin 已停止。您可以关闭此标签页。",
+      npu_none: "暂无报告：请运行 `e7twin npu <model.tflite>`。",
+    },
   };
+  let wsState = null;
   let LANG = "fr";
-  try { const l = localStorage.getItem("e7twin-lang"); if (l && I18N[l]) LANG = l; } catch (_) { /* ignoré */ }
+  try { const l = localStorage.getItem("e7twin-lang"); if (l && I18N[l]) LANG = l; else { const n = (navigator.language || "fr").toLowerCase(); LANG = n.startsWith("zh") ? "zh" : n.startsWith("en") ? "en" : "fr"; } } catch (_) { /* ignoré */ }
+  const LOCALE = { fr: "fr-FR", en: "en-GB", zh: "zh-CN" };
   const T = (k, fb) => { const v = I18N[LANG][k]; return v === undefined ? (fb === undefined ? k : fb) : v; };
   const TF = (k, ...a) => T(k).replace(/\{(\d+)\}/g, (_, i) => a[+i]);
   function applyLang() {
-    document.documentElement.lang = LANG;
+    document.documentElement.lang = LANG === "zh" ? "zh-CN" : LANG;
     document.querySelectorAll("[data-i18n]").forEach((n) => { n.textContent = T(n.dataset.i18n, n.textContent); });
     document.querySelectorAll("[data-i18n-aria]").forEach((n) => n.setAttribute("aria-label", T(n.dataset.i18nAria)));
     document.querySelectorAll("[data-i18n-title]").forEach((n) => n.setAttribute("title", T(n.dataset.i18nTitle)));
-    $("btn-lang").textContent = LANG === "fr" ? "EN" : "FR";
+    $("btn-lang").value = LANG;
     applyStatus({});
-    if (S.tab === "examples") renderExamples();
+    if (wsState) setWs(wsState.kind, wsState.key, ...wsState.args);
+    if (S.tab === "programs") { renderExamples(); renderMine(); }
+    if (S.tab === "tests") renderTests();
     if (S.lastReport) { clear($("ver-report")); renderVerify(S.lastReport); }
   }
-  $("btn-lang").addEventListener("click", () => {
-    LANG = LANG === "fr" ? "en" : "fr";
+  $("btn-lang").addEventListener("change", () => {
+    LANG = I18N[$("btn-lang").value] ? $("btn-lang").value : "fr";
     try { localStorage.setItem("e7twin-lang", LANG); } catch (_) { /* ignoré */ }
     applyLang();
   });
@@ -149,7 +190,8 @@
     S.tab = t;
     document.querySelectorAll("#nav-top [role=tab]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === t)));
     document.querySelectorAll("main > section").forEach((s) => { s.hidden = s.id !== "view-" + t; });
-    if (t === "examples") loadExamples();
+    if (t === "programs") showPview(S.pview);
+    if (t === "tests") loadTests();
     if (t === "sim") showView(S.view); else stopProfile();
   }
   let dispOn = false, dispInfo = null, dispFrames = 0, dispT0 = 0, dispFps = 0;
@@ -186,6 +228,14 @@
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) stopDisplay(); else if (S.tab === "sim" && S.view === "display") startDisplay();
   });
+  function showPview(v) {
+    S.pview = v;
+    if (S.tab !== "programs") { showTab("programs"); return; }
+    document.querySelectorAll("#nav-prog [role=tab]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.pview === v)));
+    document.querySelectorAll("#view-programs > section.sub").forEach((x) => { x.hidden = x.id !== "view-" + v; });
+    if (v === "examples") loadExamples(); else loadMine();
+  }
+  document.querySelectorAll("#nav-prog [role=tab]").forEach((b) => b.addEventListener("click", () => showPview(b.dataset.pview)));
   function showView(v) {                 // sous-vue de l'onglet Simulation
     S.view = v;
     if (S.tab !== "sim") { showTab("sim"); return; }
@@ -234,20 +284,21 @@
 
   // ---------- WebSocket ----------
   let ws = null, retry = 0, quitting = false;
-  function setWs(kind, text) {
+  function setWs(kind, key, ...args) {
+    wsState = { kind, key, args };
     $("ws-ind").className = "ws ws-" + kind;
-    $("ws-text").textContent = text;
+    $("ws-text").textContent = TF(key, ...args);
   }
   function connect() {
-    setWs("conn", "connexion…");
+    setWs("conn", "ws_connecting");
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     ws = new WebSocket(proto + "//" + location.host + "/ws");
-    ws.onopen = () => { retry = 0; setWs("up", "connecté"); };
+    ws.onopen = () => { retry = 0; setWs("up", "ws_up"); };
     ws.onmessage = (ev) => { try { onMessage(JSON.parse(ev.data)); } catch (e) { console.error(e); } };
     ws.onclose = () => {
       if (quitting) return;
       const delay = Math.min(10000, 500 * 2 ** retry++);
-      setWs("down", "déconnecté — nouvelle tentative dans " + Math.ceil(delay / 1000) + " s");
+      setWs("down", "ws_down", Math.ceil(delay / 1000));
       setTimeout(connect, delay);
     };
     ws.onerror = () => { try { ws.close(); } catch (_) { /* déjà fermé */ } };
@@ -626,12 +677,22 @@
     b2.addEventListener("click", () => simulateElfs(elfs));
     box.appendChild(b1); box.appendChild(b2);
   }
+  const EXSTATE = {};   // name -> {msg, log, open} : échec de compilation conservé au changement de langue
+  function exStatusEl(name, es) {
+    const p = el("p", { class: "ex-status", role: "status" }, es.msg);
+    if (es.log) {
+      const d = el("details", {}); d.open = !!es.open; d.addEventListener("toggle", () => { es.open = d.open; });
+      d.appendChild(el("summary", {}, T("ex_log"))); d.appendChild(el("pre", {}, es.log)); p.appendChild(d);
+    }
+    return p;
+  }
   function renderExamples() {
     const list = $("ex-list"); clear(list);
     if (!EXAMPLES) return;
     if (!EXAMPLES.length) { list.appendChild(el("p", { class: "muted" }, T("ex_none"))); return; }
     EXAMPLES.forEach((x) => {
       const card = el("div", { class: "card ex" });
+      const es = EXSTATE[x.name];
       card.appendChild(el("h3", {}, x.name));
       card.appendChild(el("span", { class: "badge " + (x.built ? "v-PASS" : "v-SKIP") }, x.built ? T("ex_built") : T("ex_notbuilt")));
       card.appendChild(el("p", {}, plain(x.description)));
@@ -639,9 +700,55 @@
       const row = el("div", { class: "inline" });
       actionButtons(row, x.elfs || {});
       row.querySelectorAll("button").forEach((b) => { b.disabled = !x.built; });
+      if (!x.built) {
+        const bb = el("button", { type: "button" }, T("ex_build"));
+        bb.addEventListener("click", () => buildExample(x.name, card));
+        row.appendChild(bb);
+      }
       card.appendChild(row);
+      if (es && !x.built) card.appendChild(exStatusEl(x.name, es));
       list.appendChild(card);
     });
+    const missing = EXAMPLES.filter((x) => !x.built);
+    if (missing.length) {
+      const all = el("button", { type: "button", class: "primary", id: "ex-build-all" }, TF("ex_build_all", missing.length));
+      all.addEventListener("click", () => buildMissing(all));
+      list.insertBefore(all, list.firstChild);
+    }
+  }
+
+  // Compile un exemple ; renvoie {ok, error?}. Met à jour EXAMPLES et la carte si card est fourni.
+  async function buildExample(name, card, quiet) {
+    const row = card && card.querySelector(".inline");
+    const btn = row && row.lastChild;
+    const old = card && card.querySelector(".ex-status"); if (old) old.remove();
+    const status = el("p", { class: "muted ex-status", role: "status" }, T("ex_building"));
+    if (card) { card.appendChild(status); if (btn) btn.disabled = true; }
+    try {
+      const r = await api("/api/examples/" + encodeURIComponent(name) + "/build", { method: "POST" });
+      if (r.example) { const i = EXAMPLES.findIndex((e) => e.name === name); if (i >= 0) EXAMPLES[i] = r.example; }
+      if (!r.ok) throw Object.assign(new Error(T("ex_build_fail")), { log: r.log_tail });
+      delete EXSTATE[name];
+      if (!quiet) renderExamples();
+      return { ok: true };
+    } catch (e) {
+      const es = EXSTATE[name] = { msg: TF("ex_build_err", e.message), log: e.log, open: false };
+      if (card) { status.remove(); card.appendChild(exStatusEl(name, es)); }
+      if (btn) btn.disabled = false;
+      return { ok: false, error: e.message };
+    }
+  }
+  async function buildMissing(btn) {
+    btn.disabled = true;
+    const todo = EXAMPLES.filter((x) => !x.built).map((x) => x.name);
+    const failed = [];
+    for (let i = 0; i < todo.length; i++) {
+      btn.textContent = TF("ex_progress", i + 1, todo.length, todo[i]);
+      const r = await buildExample(todo[i], null, true);
+      if (!r.ok) failed.push(todo[i] + " (" + r.error + ")");
+    }
+    renderExamples();
+    if (failed.length) $("ex-msg").textContent = TF("ex_build_err", failed.join(", "));
   }
 
   async function verifyElfs(elfs) {
@@ -675,12 +782,160 @@
     } catch (e) { $("sim-hint").textContent = ""; showError(T("err_http") + " : " + e.message); }
   }
 
+  // ---------- tests carte / simu ----------
+  let TESTS = null;
+  const TSTATE = {};       // name -> {result, boardSig, openUart, openBoard} (survit au changement de langue)
+  const tstate = (n) => (TSTATE[n] = TSTATE[n] || { result: null, boardSig: "", openUart: false, openBoard: false });
+  const normSig = (s) => String(s || "").replace(/\s+/g, "").toLowerCase();
+  function copyBtn(getText) {
+    const b = el("button", { type: "button" }, T("tst_copy"));
+    b.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(getText()); b.textContent = T("tst_copied"); setTimeout(() => { b.textContent = T("tst_copy"); }, 1500); }
+      catch (_) { b.textContent = T("err_action"); }
+    });
+    return b;
+  }
+  async function loadTests() {
+    $("tst-msg").textContent = TESTS ? "" : T("ex_loading");
+    try { TESTS = await api("/api/tests"); $("tst-msg").textContent = ""; }
+    catch (e) { $("tst-msg").textContent = T("err_http") + " : " + e.message; return; }
+    renderTests();
+  }
+  function renderTests() {
+    const list = $("tst-list"); if (!list) return; clear(list);
+    if (!TESTS) return;
+    if (!TESTS.length) { list.appendChild(el("p", { class: "muted" }, T("tst_none"))); return; }
+    TESTS.forEach((x) => {
+      const card = el("div", { class: "card ex", "data-test": x.name });
+      card.appendChild(el("h3", {}, x.name));
+      card.appendChild(el("span", { class: "badge " + (x.built ? "v-PASS" : "v-SKIP") }, x.built ? T("ex_built") : T("ex_notbuilt")));
+      card.appendChild(el("p", {}, plain(x.description)));
+      card.appendChild(el("p", { class: "muted" }, T("ex_cores") + " : " + (x.cores || []).map(coreLabel).join(", ")));
+      const row = el("div", { class: "inline" });
+      if (!x.built) {
+        const bb = el("button", { type: "button" }, T("ex_build"));
+        bb.addEventListener("click", () => buildTest(x.name, card, bb));
+        row.appendChild(bb);
+      } else {
+        const run = el("button", { type: "button", class: "primary" }, T("tst_run"));
+        run.addEventListener("click", () => runTest(x.name, card, run));
+        row.appendChild(run);
+      }
+      card.appendChild(row);
+      const res = el("div", { class: "tst-result" }); card.appendChild(res);
+      if (tstate(x.name).result) renderTestResult(res, x.name, tstate(x.name).result);
+      list.appendChild(card);
+    });
+  }
+  async function buildTest(name, card, btn) {
+    btn.disabled = true;
+    const st = el("p", { class: "muted", role: "status" }, T("ex_building"));
+    card.querySelector(".tst-result").replaceChildren(st);
+    try {
+      const r = await api("/api/examples/" + encodeURIComponent(name) + "/build", { method: "POST" });
+      if (!r.ok) throw Object.assign(new Error(T("ex_build_fail")), { log: r.log_tail });
+      TESTS = await api("/api/tests"); renderTests();
+    } catch (e) {
+      st.textContent = TF("ex_build_err", e.message); btn.disabled = false;
+      if (e.log) { const d = el("details", {}); d.appendChild(el("summary", {}, T("ex_log"))); d.appendChild(el("pre", {}, e.log)); st.appendChild(d); }
+    }
+  }
+  async function runTest(name, card, btn) {
+    btn.disabled = true; const old = btn.textContent; btn.textContent = T("tst_running");
+    const res = card.querySelector(".tst-result"); clear(res);
+    try {
+      const r = await api("/api/tests/" + encodeURIComponent(name) + "/run", { method: "POST" });
+      const st = tstate(name); st.result = r; st.boardSig = ""; st.openUart = false; st.openBoard = false; renderTestResult(res, name, r);
+    } catch (e) { res.appendChild(el("p", { class: "errs" }, TF("ex_build_err", e.message))); }
+    btn.disabled = false; btn.textContent = old;
+  }
+  function renderTestResult(box, name, r) {
+    clear(box);
+    const head = el("div", { class: "inline" });
+    head.appendChild(el("span", { class: "badge verdict " + (r.ok ? "v-PASS" : "v-FAIL") }, r.ok ? T("tst_ok") : T("tst_fail")));
+    head.appendChild(el("span", { class: "muted" }, T("tst_score") + " : " + (r.score == null ? "–" : r.score) + " · " + T("tst_duration") + " : " + (r.duration_s == null ? "–" : Number(r.duration_s).toFixed(1) + " s")));
+    box.appendChild(head);
+    const sigRow = el("div", { class: "inline" });
+    sigRow.appendChild(el("code", { class: "sig" }, r.sig || "—"));
+    if (r.sig) sigRow.appendChild(copyBtn(() => r.sig));
+    box.appendChild(sigRow);
+    const st = tstate(name);
+    const dU = el("details", {}); dU.open = st.openUart; dU.addEventListener("toggle", () => { st.openUart = dU.open; }); dU.appendChild(el("summary", {}, T("tst_uart"))); dU.appendChild(el("pre", {}, r.uart || "")); box.appendChild(dU);
+    const dB = el("details", {}); dB.open = st.openBoard; dB.addEventListener("toggle", () => { st.openBoard = dB.open; }); dB.appendChild(el("summary", {}, T("tst_board")));
+    if (r.board_cmd) { dB.appendChild(el("pre", {}, r.board_cmd)); dB.appendChild(copyBtn(() => r.board_cmd)); }
+    else dB.appendChild(el("p", { class: "muted" }, T("tst_no_cmd")));
+    dB.appendChild(el("p", { class: "muted" }, T("tst_flash_note")));
+    box.appendChild(dB);
+    const cmp = el("div", { class: "inline" });
+    const inp = el("input", { type: "text", class: "tst-board-sig", placeholder: T("tst_board_sig"), "aria-label": T("tst_board_sig") });
+    const out = el("strong", { role: "status" }, "");
+    const upd = () => {
+      if (!inp.value.trim()) { out.textContent = ""; out.className = ""; return; }
+      const same = normSig(inp.value) === normSig(r.sig);
+      out.textContent = same ? T("tst_same") : T("tst_diff"); out.className = same ? "tst-same" : "tst-diff";
+    };
+    inp.value = st.boardSig; upd();
+    inp.addEventListener("input", () => { st.boardSig = inp.value; upd(); });
+    cmp.appendChild(inp); cmp.appendChild(out); box.appendChild(cmp);
+  }
+
   // import ELF
-  function importResult(elf, core) {
-    const box = $("imp-result"); clear(box); box.hidden = false;
-    box.appendChild(el("p", {}, TF("imp_ok", elf)));
+  function importResult(elf, core, boxId) {
+    const box = $(boxId || "imp-result"); clear(box); box.hidden = false;
+    const norm = String(elf).replace(/\\/g, "/");
+    const bi = norm.lastIndexOf("build/");
+    const shown = bi >= 0 ? norm.slice(bi) : norm.split("/").pop();
+    const p = el("p", { title: elf }, TF("imp_ok", shown) + " — " + T("mine_added"));
+    box.appendChild(p);
     const row = el("div", { class: "inline" });
-    actionButtons(row, { [core]: elf }); box.appendChild(row);
+    actionButtons(row, { [core]: elf });
+    const v = el("button", { type: "button" }, T("mine_view"));
+    v.addEventListener("click", () => showPview("mine"));
+    row.appendChild(v); box.appendChild(row);
+    MINE = null; loadMine();
+  }
+  // Mes programmes
+  let MINE = null;
+  async function loadMine() {
+    $("mine-msg").textContent = MINE ? "" : T("mine_loading");
+    try { MINE = await api("/api/programs"); $("mine-msg").textContent = ""; }
+    catch (e) { $("mine-msg").textContent = T("err_http") + " : " + e.message; return; }
+    renderMine();
+  }
+  function renderMine() {
+    const list = $("mine-list"); clear(list);
+    if (!MINE) return;
+    if (!MINE.length) { list.appendChild(el("p", { class: "muted" }, T("mine_none"))); return; }
+    MINE.forEach((x) => {
+      const card = el("div", { class: "card ex" });
+      card.appendChild(el("h3", {}, x.name));
+      card.appendChild(el("span", { class: "badge " + (x.origin === "compiled" ? "v-PASS" : "v-SKIP") }, x.origin === "compiled" ? T("mine_compiled") : T("mine_imported")));
+      card.appendChild(el("p", { class: "muted" }, T("ex_cores") + " : " + (x.core_guess ? coreLabel(x.core_guess) : "?") + " · " + new Date(x.mtime * 1000).toLocaleString(LOCALE[LANG])));
+      const core = x.core_guess || (execCores()[0] || {}).id;
+      const row = el("div", { class: "inline" });
+      actionButtons(row, { [core]: x.elf });
+      if (x.has_source) {
+        const e = el("button", { type: "button" }, T("mine_edit"));
+        e.addEventListener("click", () => editProgram(x, core)); row.appendChild(e);
+      }
+      const d = el("button", { type: "button" }, T("mine_delete"));
+      d.addEventListener("click", () => deleteProgram(x)); row.appendChild(d);
+      card.appendChild(row); list.appendChild(card);
+    });
+  }
+  async function editProgram(x, core) {
+    try {
+      const r = await fetch("/api/programs/" + encodeURIComponent(x.name) + "/source");
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      $("src-text").value = await r.text();
+      $("src-name").value = x.name; if (core) $("src-core").value = core;
+      showTab("build");
+    } catch (e) { $("mine-msg").textContent = T("err_http") + " : " + e.message; }
+  }
+  async function deleteProgram(x) {
+    if (!confirm(TF("mine_confirm", x.name))) return;
+    try { await api("/api/programs/" + encodeURIComponent(x.name), { method: "DELETE" }); MINE = null; loadMine(); }
+    catch (e) { $("mine-msg").textContent = e.message; }
   }
   async function uploadElf(file) {
     const msg = $("imp-msg"); $("imp-result").hidden = true;
@@ -706,8 +961,8 @@
     const n = f.name.replace(/\.c$/i, "").replace(/[^A-Za-z0-9_]/g, "_"); if (n) $("src-name").value = n;
   });
   $("btn-compile").addEventListener("click", async () => {
-    const msg = $("imp-msg"), errs = $("imp-errors"), logBox = $("imp-log-box");
-    clear(errs); logBox.hidden = true; $("imp-result").hidden = true;
+    const msg = $("bld-msg"), errs = $("bld-errors"), logBox = $("bld-log-box");
+    clear(errs); logBox.hidden = true; $("bld-result").hidden = true;
     const text = $("src-text").value;
     if (!text.trim()) { msg.textContent = T("imp_empty_src"); return; }
     msg.textContent = T("imp_compiling"); $("btn-compile").disabled = true;
@@ -715,8 +970,8 @@
     try {
       const r = await api("/api/build/source?core=" + encodeURIComponent(core) + "&name=" + encodeURIComponent(name),
         { method: "POST", headers: { "Content-Type": "text/plain; charset=utf-8" }, body: text });
-      if (r.log) { $("imp-log").textContent = r.log; logBox.hidden = false; }
-      if (r.ok && r.elf) { msg.textContent = ""; importResult(r.elf, r.core_guess || core); }
+      if (r.log) { $("bld-log").textContent = r.log; logBox.hidden = false; }
+      if (r.ok && r.elf) { msg.textContent = ""; importResult(r.elf, r.core_guess || core, "bld-result"); }
       else {
         msg.textContent = T("imp_failed");
         const ul = el("ul", { class: "errs" });
@@ -793,7 +1048,7 @@
     applyLang();
     if (document.querySelector(`#nav-sub [data-view="${v}"]`)) showView(v);
     else if (document.querySelector(`#nav-top [data-tab="${v}"]`)) showTab(v);
-    else showTab("examples");
+    else showTab("programs");
   }
   init();
 })();

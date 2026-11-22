@@ -35,8 +35,7 @@ Descriptions lisibles par l'interface (une ligne par exemple, `nom — descripti
 - load_loop_hp — charge cyclique 10→90 % sur 1 s simulée, veille WFI entre les tours — HP
 - load_loop_he — charge cyclique 10→90 % (déphasée) sur 1 s simulée, veille WFI entre les tours — HE
 
-Descriptions lisibles par l'interface (
-om — description — cœur(s)) :
+Descriptions lisibles par l'interface (`nom — description — cœur(s)`) :
 
 - display_hp — affichage CDC200/DSI 480×800 RGB565, barre animée toutes les 500 ms, UART « DISPLAY frame <n> » — HP
 - load_loop_hp — charge cyclique 10→90 % sur 1 s simulée, veille WFI entre les tours — HP

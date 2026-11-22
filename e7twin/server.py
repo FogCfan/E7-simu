@@ -34,6 +34,7 @@ SPIKE_DIR = ROOT / "build" / "spike"
 EXAMPLES_DIR = ROOT / "build" / "examples"
 UPLOAD_DIR = ROOT / "build" / "uploads"
 SRC_EXAMPLES_DIR = ROOT / "examples"
+_core_cache: dict[str, tuple[float, str | None]] = {}  # chemin ELF -> (mtime, core_guess)
 _building: set[str] = set()  # noms en cours de compilation (/api/build/source)
 
 
@@ -101,13 +102,18 @@ def _readme_entries() -> dict[str, dict]:
         for line in readme.read_text(encoding="utf-8", errors="replace").splitlines():
             line = line.strip().lstrip("-*").strip()
             if line.startswith("|"):
-                cells = [c.strip().strip("`") for c in line.strip("|").split("|")]
-                if len(cells) >= 3 and _NAME_RE.fullmatch(cells[0]) and cells[0].lower() != "projet":
-                    out[cells[0]] = {"description": cells[2], "cores": _cores_of(cells[1])}
+                cells = [c.strip() for c in line.strip("|").split("|")]
+                if len(cells) >= 3 and _NAME_RE.fullmatch(cells[0].strip("`")) and cells[0].strip("`").lower() != "projet":
+                    out[cells[0].strip("`")] = {"description": cells[2], "cores": _cores_of(cells[1].strip("`"))}
             else:
-                parts = [x.strip().strip("`") for x in re.split(r"\s+[—–]\s+", line)]
-                if len(parts) >= 2 and _NAME_RE.fullmatch(parts[0]):
-                    out[parts[0]] = {"description": parts[1], "cores": _cores_of(parts[2]) if len(parts) > 2 else []}
+                parts = [x.strip() for x in re.split(r"\s+[—–]\s+", line)]
+                if len(parts) >= 2 and _NAME_RE.fullmatch(parts[0].strip("`")):
+                    out[parts[0].strip("`")] = {"description": parts[1],
+                                                "cores": _cores_of(parts[2].strip("`")) if len(parts) > 2 else []}
+    def _real(n: str) -> bool:  # projet réel : dossier avec *.cproject.yml, ou ELF déjà compilé
+        return any(any((SRC_EXAMPLES_DIR / c).glob("*.cproject.yml")) or (EXAMPLES_DIR / f"{c}.elf").is_file()
+                   for c in (n, f"{n}_hp", f"{n}_he"))
+    out = {n: e for n, e in out.items() if _real(n)}  # ligne de README sans projet : ignorée
     if SRC_EXAMPLES_DIR.is_dir():
         for d in sorted(SRC_EXAMPLES_DIR.iterdir()):
             if d.is_dir() and d.name not in out and any(d.glob("*.cproject.yml")):
@@ -249,6 +255,48 @@ def _resolve_image(image: str) -> Path:
     raise HTTPException(404, f"image inconnue : {image!r} (connues : {[i['id'] for i in list_images()]})")
 
 
+def _run_build_all(projects: list[str]) -> tuple[int, str]:
+    """Lance `examples/build_all.py --only ...` en sous-processus ; (code, journal)."""
+    import subprocess
+    try:
+        r = subprocess.run([sys.executable, str(SRC_EXAMPLES_DIR / "build_all.py"), "--only", *projects],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900)
+    except subprocess.TimeoutExpired:
+        return 1, "délai dépassé (900 s)"
+    return r.returncode, (r.stdout or "") + (r.stderr or "")
+
+
+_SIG_RE = re.compile(r"SIG\s+([0-9A-Fa-f]{8})\s+(\d+)/(\d+)\s+OK")
+
+
+def _run_test_elf(elf: Path, core: str, timeout: float = 120.0) -> dict:
+    """Exécute `elf` en headless jusqu'à la ligne `SIG ...` (ou `timeout`). Session toujours fermée."""
+    import time
+    from . import sim
+    t0 = time.time()
+    with sim.Session() as s:  # __exit__ -> close() : pas de renode.exe orphelin
+        s.load_elf(core, elf)
+        s.start()
+        s.run_until(r"SIG\s+[0-9A-Fa-f]{8}\s+\d+/\d+\s+OK", timeout)
+        uart = s.uart_text()
+    m = _SIG_RE.search(uart)
+    score = f"{m.group(2)}/{m.group(3)}" if m else None
+    return {"ok": bool(m and m.group(2) == m.group(3)), "sig": m.group(1).upper() if m else None,
+            "score": score, "uart": uart[:20000], "duration_s": round(time.time() - t0, 1)}
+
+
+def _board_cmd(elf: Path) -> str | None:
+    """Commandes SETOOLS (affichées, jamais exécutées) pour cet ELF, sans rien générer."""
+    try:
+        from . import package
+        img = package.analyze_image(elf, None)
+        out = ROOT / "build" / "package"
+        lines = package.setools_commands(out / package.atoc_filename([img]), [out / package._bin_name(img)])
+        return f"e7twin package {_shown(elf)}   # génère .bin + ATOC dans build/package, puis :\n" + "\n".join(lines)
+    except Exception:
+        return None
+
+
 def create_app(source: MetricsSource, reports_dir: Path | None = None) -> FastAPI:
     hub = _Hub(source)
     rdir = Path(reports_dir) if reports_dir is not None else REPORTS_DIR
@@ -309,6 +357,151 @@ def create_app(source: MetricsSource, reports_dir: Path | None = None) -> FastAP
     @app.get("/api/examples")
     def get_examples() -> list[dict]:
         return list_examples()
+
+    def _prog_elf(stem: str) -> Path | None:
+        """ELF d'un programme : `<stem>.elf` (importé) sinon l'ELF compilé sous `<stem>/out/`."""
+        top = UPLOAD_DIR / f"{stem}.elf"
+        if top.is_file():
+            return top
+        out = UPLOAD_DIR / stem / "out"
+        if out.is_dir():
+            elfs = [p for p in out.rglob(f"{stem}.elf") if p.is_file()]
+            if elfs:
+                return max(elfs, key=lambda p: p.stat().st_mtime)
+        return None
+
+    def _prog_stem(name: str) -> str:
+        if not _IMAGE_RE.match(name) or name.startswith(".") or ".." in name:
+            raise HTTPException(400, f"nom de programme invalide : {name!r}")
+        return name
+
+    def _core_cached(elf: Path) -> str | None:
+        key = str(elf)
+        mt = elf.stat().st_mtime
+        hit = _core_cache.get(key)
+        if hit and hit[0] == mt:
+            return hit[1]
+        try:
+            from . import sim
+            core = sim.assign_core(elf)[0]
+        except Exception:
+            core = _deduce_core(elf)
+        _core_cache[key] = (mt, core)
+        return core
+
+    @app.get("/api/programs")
+    def list_programs() -> list[dict]:
+        if not UPLOAD_DIR.is_dir():
+            return []
+        stems = {p.stem for p in UPLOAD_DIR.glob("*.elf")} | {p.stem for p in UPLOAD_DIR.glob("*.c")}
+        out = []
+        for stem in stems:
+            elf = _prog_elf(stem)
+            if elf is None or not _IMAGE_RE.match(stem):
+                continue  # source sans ELF (compilation échouée) : non exposé
+            has_src = (UPLOAD_DIR / f"{stem}.c").is_file()
+            out.append({"id": f"uploads/{stem}", "name": stem, "elf": _shown(elf),
+                        "core_guess": _core_cached(elf), "origin": "compiled" if has_src else "imported",
+                        "has_source": has_src, "mtime": elf.stat().st_mtime})
+        return sorted(out, key=lambda d: d["mtime"], reverse=True)
+
+    @app.get("/api/programs/{name}/source")
+    def program_source(name: str) -> Response:
+        src = UPLOAD_DIR / f"{_prog_stem(name)}.c"
+        if not src.is_file():
+            raise HTTPException(404, f"pas de source pour {name!r}")
+        return Response(src.read_text(encoding="utf-8", errors="replace"), media_type="text/plain; charset=utf-8")
+
+    @app.delete("/api/programs/{name}")
+    def delete_program(name: str) -> dict:
+        import shutil
+        stem = _prog_stem(name)
+        files = [UPLOAD_DIR / f"{stem}{s}" for s in (".elf", ".c", ".map")]
+        workdir = UPLOAD_DIR / stem
+        if not any(f.is_file() for f in files) and not workdir.is_dir():
+            raise HTTPException(404, f"programme inconnu : {name!r}")
+        if stem in _building:
+            raise HTTPException(409, f"{stem!r} est en cours de compilation")
+        root = UPLOAD_DIR.resolve()
+        try:
+            loaded = [Path(p).resolve() for p in (source.status().get("images") or {}).values()]
+        except Exception:
+            loaded = []
+        for p in loaded:
+            if p == (root / f"{stem}.elf") or (root / stem) in p.parents:
+                raise HTTPException(409, f"{stem!r} est chargé dans la simulation")
+        for f in files:
+            f.unlink(missing_ok=True)
+        if workdir.is_dir() and workdir.resolve().parent == root:
+            shutil.rmtree(workdir, ignore_errors=True)
+        return {"ok": True}
+
+    def _example_projects(name: str) -> tuple[dict, list[str]]:
+        ex = next((e for e in list_examples() if e["name"] == name), None)
+        if ex is None:
+            raise HTTPException(404, f"exemple inconnu : {name!r}")
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("_e7_build_all", SRC_EXAMPLES_DIR / "build_all.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        known = set(mod.PROJECTS)
+        if name in known:
+            projects = [name]
+        else:
+            projects = [f"{name}_{c[-2:]}" for c in ex["cores"]]
+        missing = [p for p in projects if p not in known]
+        if not projects or missing:
+            raise HTTPException(404, f"projet(s) absent(s) de build_all.PROJECTS : {missing or [name]}")
+        return ex, projects
+
+    @app.post("/api/examples/{name}/build")
+    async def build_example(name: str) -> dict:
+        ex, projects = _example_projects(name)
+        key = f"example:{name}"
+        if key in _building:
+            raise HTTPException(409, f"une compilation de l'exemple {name!r} est déjà en cours")
+        _building.add(key)
+        try:
+            code, log = await run_in_threadpool(_run_build_all, projects)
+        finally:
+            _building.discard(key)
+        fresh = next((e for e in list_examples() if e["name"] == name), ex)
+        present = all((EXAMPLES_DIR / f"{p}.elf").is_file() for p in projects)
+        return {"ok": code == 0 and present, "name": name, "projects": projects,
+                "log_tail": "\n".join(log.splitlines()[-40:]), "example": fresh}
+
+    def _tests() -> list[dict]:
+        return [e for e in list_examples() if e["name"].startswith("parity_")]
+
+    @app.get("/api/tests")
+    def list_tests() -> list[dict]:
+        return _tests()
+
+    @app.post("/api/tests/{name}/run")
+    async def run_test(name: str) -> dict:
+        t = next((e for e in _tests() if e["name"] == name), None)
+        if t is None:
+            raise HTTPException(404, f"test inconnu : {name!r}")
+        if not t["elfs"]:
+            raise HTTPException(409, f"test {name!r} non compilé (POST /api/examples/{name}/build)")
+        key = f"test:{name}"
+        if key in _building:
+            raise HTTPException(409, f"une exécution de {name!r} est déjà en cours")
+        core = "m55_hp" if "m55_hp" in t["elfs"] else next(iter(t["elfs"]))
+        elf = ROOT / t["elfs"][core]
+        _building.add(key)
+        try:
+            res = await run_in_threadpool(_run_test_elf, elf, core)
+            cmd = await run_in_threadpool(_board_cmd, elf)
+        except Exception as e:
+            from . import sim
+            if isinstance(e, sim.SimError) and "Renode introuvable" in str(e):
+                raise HTTPException(503, str(e)) from e
+            raise HTTPException(500, f"exécution échouée : {e}") from e
+        finally:
+            _building.discard(key)
+        return {"ok": res["ok"], "name": name, "elf": _shown(elf), "core": core, "sig": res["sig"],
+                "score": res["score"], "uart": res["uart"], "duration_s": res["duration_s"], "board_cmd": cmd}
 
     @app.post("/api/upload")
     async def upload(request: Request, name: str = "") -> dict:

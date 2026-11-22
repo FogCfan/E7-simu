@@ -1,4 +1,4 @@
-"""Tests du dashboard statique (agent 06 ; à signaler à l'agent 07)."""
+﻿"""Tests du dashboard statique (agent 06 ; à signaler à l'agent 07)."""
 
 import re
 
@@ -68,7 +68,7 @@ def test_ws_feeds_the_dashboard(client):
 
 def test_main_tabs_present(client):
     html = client.get("/").text
-    for t in ("examples", "import", "verify", "sim"):
+    for t in ("programs", "build", "import", "verify", "sim"):
         assert f'data-tab="{t}"' in html and f'id="view-{t}"' in html, t
     for i in ("drop", "src-text", "btn-compile", "btn-start", "btn-pause", "btn-reset", "btn-lang"):
         assert f'id="{i}"' in html, i
@@ -125,3 +125,56 @@ def test_quit_button_wired(client):
     assert 'id="btn-quit"' in html
     js = client.get("/app.js").text
     assert "/api/shutdown" in js and "quitting = true" in js and "Stop E7 Twin" in js
+
+
+def test_new_navigation_tabs_and_programs(client):
+    html = client.get("/").text
+    order = [html.index(f'data-tab="{t}"') for t in ("programs", "build", "import", "verify", "sim")]
+    assert order == sorted(order)
+    for i in ("view-programs", "view-build", "view-examples", "view-mine", "nav-prog", "mine-list", "btn-compile", "bld-result"):
+        assert f'id="{i}"' in html
+    assert 'data-pview="examples"' in html and 'data-pview="mine"' in html
+    # la compilation n'est plus dans l'onglet Importer
+    imp = html[html.index('id="view-import"'):html.index('id="view-verify"')]
+    assert "btn-compile" not in imp and "drop" in imp
+    js = client.get("/app.js").text
+    assert '"/api/programs"' in js and "/source" in js and '"DELETE"' in js
+    assert "My programs" in js and "Mes programmes" in js
+
+
+def test_no_duplicate_ids_in_index():
+    import re
+    from collections import Counter
+    html = (__import__("pathlib").Path(__file__).resolve().parent.parent / "web" / "index.html").read_text(encoding="utf-8")
+    dup = [i for i, n in Counter(re.findall(r'\sid="([^"]+)"', html)).items() if n > 1]
+    assert not dup, f"ids en double : {dup}"
+
+
+def test_example_build_wired():
+    js = (__import__("pathlib").Path(__file__).resolve().parent.parent / "web" / "app.js").read_text(encoding="utf-8")
+    assert "/build" in js and "ex_build_all" in js
+
+
+def test_i18n_keys_complete():
+    import re
+    js = (__import__("pathlib").Path(__file__).resolve().parent.parent / "web" / "app.js").read_text(encoding="utf-8")
+    start = js.index("const I18N = {")
+    end = js.index("let LANG", start)
+    block = js[start:end]
+    parts = {m.group(1): m.start() for m in re.finditer(r"^    (fr|en|zh): \{", block, re.M)}
+    assert set(parts) == {"fr", "en", "zh"}
+    order = sorted(parts, key=parts.get)
+    keys = {}
+    for i, lang in enumerate(order):
+        seg = block[parts[lang]: parts[order[i + 1]] if i + 1 < len(order) else len(block)]
+        keys[lang] = set(re.findall(r'\b([a-z][a-z0-9_]*): "', seg))
+    for lang in ("en", "zh"):
+        assert not keys["fr"] - keys[lang], f"clés manquantes dans {lang}: {keys['fr'] - keys[lang]}"
+
+
+def test_tests_tab_wired():
+    root = __import__("pathlib").Path(__file__).resolve().parent.parent / "web"
+    html = (root / "index.html").read_text(encoding="utf-8")
+    js = (root / "app.js").read_text(encoding="utf-8")
+    assert 'data-tab="tests"' in html and 'id="view-tests"' in html and 'id="tst-list"' in html
+    assert "/api/tests" in js and "/run" in js and "board_cmd" in js
