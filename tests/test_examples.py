@@ -34,6 +34,7 @@ EXAMPLES = {  # projet -> coeur (voir examples/alif.csolution.yml et tests/conft
     "dual_core_mhu_he": "m55_he",
     "load_loop_hp": "m55_hp",
     "load_loop_he": "m55_he",
+    "parity_hp": "m55_hp",
 }
 
 
@@ -237,6 +238,19 @@ def test_load_loop_run_hp_he_ticks(example_elf, tmp_path):
     assert cp.returncode == 0, cp.stdout + cp.stderr
     for text in ("HP tick 1 load 10%", "HP tick 2 load 30%", "HP tick 3 load 50%", "HE tick 1 load 50%"):
         assert text in cp.stdout, cp.stdout
+
+# ----------------------------------------------------------------------------- parity_hp (parite carte / simu)
+
+@pytest.mark.renode
+def test_parity_hp_signature(example_elf, tmp_path):
+    """Les 10 controles T passent ; la ligne SIG (reference simu E1C0E658) est affichee apres `PARITY: done`."""
+    cp = _run_expect(["--hp", str(example_elf("parity_hp")), "--expect", "PARITY: done"], tmp_path)
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    assert "PARITY: done" in cp.stdout
+    sig = [ln for ln in cp.stdout.splitlines() if "SIG " in ln]
+    assert sig and "10/10 OK" in sig[0], cp.stdout
+    assert "E1C0E658" in sig[0], sig[0]
+    assert "FAIL" not in cp.stdout
 
 # ----------------------------------------------------------------------------- stack_overflow
 #

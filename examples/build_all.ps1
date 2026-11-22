@@ -39,6 +39,7 @@ $Projects = [ordered]@{
     load_loop_hp     = 'HP'
     load_loop_he     = 'HE'
     display_hp       = 'HP'
+    parity_hp        = 'HP'
 }
 if ($Only.Count -gt 0) {
     foreach ($o in $Only) { if (-not $Projects.Contains($o)) { throw "projet inconnu : $o (attendus : $($Projects.Keys -join ', '))" } }

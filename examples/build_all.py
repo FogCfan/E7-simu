@@ -33,6 +33,7 @@ PROJECTS = {
     "load_loop_hp": "HP",
     "load_loop_he": "HE",
     "display_hp": "HP",
+    "parity_hp": "HP",
 }
 
 

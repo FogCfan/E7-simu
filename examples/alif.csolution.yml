@@ -61,3 +61,5 @@ solution:
       for-context: +DevKit-E7-HE
     - project: display_hp/display_hp.cproject.yml
       for-context: +DevKit-E7-HP
+    - project: parity_hp/parity_hp.cproject.yml
+      for-context: +DevKit-E7-HP

@@ -8,6 +8,7 @@ Solution csolution copiée et adaptée de `tools/alif_vscode-template` (commit `
 |---|---|---|
 | `hello_hp` | HP | `check` sans FAIL ; UART4 : « Hello E7 HP » |
 | `hello_he` | HE | `check` sans FAIL ; UART4 : « Hello E7 HE » |
+| `parity_hp` | HP | **test de parité carte / simu** : 10 contrôles déterministes (CRC32, U64, flottants, RAM, tas, horloge, SysTick) affichés à l’écran et sur UART4 ; ligne `SIG xxxxxxxx` identique carte et simu = même comportement. Lignes `I` (CPUID, adresses) hors signature. Non vérifié sur carte. |
 | `helium_dot` | HP | produit scalaire int8 MVE = scalaire ; UART4 : « MVE OK » |
 | `too_big` | HE | **`check` FAIL** : tableau de 2 Mo en DTCM. Compile parce que son `app_mem_regions.h` déclare volontairement une DTCM de 4 Mo. Ne jamais flasher. |
 | `stack_overflow` | HP | récursion infinie ; fault attendu sur carte (voir `tests/test_examples.py` pour ce que Renode montre) |
@@ -40,3 +41,15 @@ om — description — cœur(s)) :
 - display_hp — affichage CDC200/DSI 480×800 RGB565, barre animée toutes les 500 ms, UART « DISPLAY frame <n> » — HP
 - load_loop_hp — charge cyclique 10→90 % sur 1 s simulée, veille WFI entre les tours — HP
 - load_loop_he — charge cyclique 10→90 % (déphasée) sur 1 s simulée, veille WFI entre les tours — HE
+
+## Tester la parité sur la vraie carte
+
+`parity_hp` sert à comparer la carte et le simulateur. L'outil ne flashe jamais : l'humain lance la commande.
+
+1. `py -3.14 -m e7twin.cli package build/examples/parity_hp.elf` affiche la commande SETOOLS ; la lancer soi-même.
+2. Lire l'écran (CDC200) ou l'UART4 (115200 8N1) jusqu'à `PARITY: done`.
+3. Comparer la ligne `SIG` à la référence simulée : **`SIG E1C0E658  10/10 OK`** (identique sur 2 exécutions Renode).
+   Les 10 lignes `T` doivent aussi toutes afficher `PASS`.
+4. Peuvent légitimement différer : les lignes `I` (CPUID, adresses `SRAMBUF`/`ADDR_VAR`), hors signature.
+5. Limite : la configuration RTE de la dalle vient du DevKit-E7 (comme `display_hp`), pas de l'AppKit ; l'affichage
+   peut donc différer sur l'AppKit, l'UART4 reste la référence.
