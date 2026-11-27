@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include CMSIS_device_header
 #include "Driver_CDC200.h"
+#include "se_services_port.h"   /* services du Secure Enclave (alimentation de l'ecran sur la carte) */
 
 #if defined(RTE_CMSIS_Compiler_STDOUT_Custom)
 #include "retarget_stdout.h"
@@ -18,7 +19,7 @@
  * Lignes "I"  : information (CPUID, cycles/tick...), peut legitimement differer carte/sim, hors signature.
  * Ligne finale : "SIG xxxxxxxx" = CRC32 des lignes T. Meme signature carte et simu => meme comportement logiciel.
  * Utilisation : e7twin run build/examples/parity_hp.elf, puis comparer l'UART et l'ecran avec ceux de la carte.
- * Non verifie sur carte reelle. Ne flashe rien. */
+ * Verifie sur carte (AppKit E7, 2026-11-25) : SIG E1C0E658 10/10, comme dans Renode. Ne flashe rien. */
 #if RTE_CDC200_PIXEL_FORMAT != 2
 #error "parity_hp attend RTE_CDC200_PIXEL_FORMAT == 2 (RGB565)"
 #endif
@@ -147,17 +148,58 @@ static void run_tests(void)
     TEST("SYSTICK", "%lu", (unsigned long)(ticks - t0), (ticks - t0) == 10u);
 }
 
+/* Sur la carte, la D-PHY MIPI et les horloges DSI/CDC200 sont coupees tant que l'application
+ * ne les demande pas au Secure Enclave : sans cela, Driver_CDC200.Initialize rend -1 (PLL D-PHY non verrouillee).
+ * Profil repris du SDK du porteur (third_party/mlek/platform/source/platform_drivers.c, cas E7 HP),
+ * plus PD_DBSS pour garder la J-Link. Le simulateur n'a pas de SE : les appels y expirent, on continue.
+ * Etat lisible par J-Link : g_se_rc / g_se_err et g_clk_rc / g_clk_err (0 = succes), g_disp_rc (0 = ecran demarre). */
+volatile uint32_t g_se_rc = 0xFFFFFFFFu, g_se_err = 0xFFFFFFFFu;
+volatile int32_t g_disp_rc = 1;
+volatile uint32_t g_clk_rc = 0xFFFFFFFFu, g_clk_err = 0xFFFFFFFFu;
+
+static void se_power_display(void)
+{
+    run_profile_t rp = {0};
+    uint32_t err = 0;
+    se_services_port_init();
+    rp.dcdc_mode       = DCDC_MODE_PWM;
+    rp.dcdc_voltage    = DCDC_VOUT_0825;
+    rp.memory_blocks   = SERAM_MASK | SRAM0_MASK | SRAM1_MASK | MRAM_MASK | FWRAM_MASK | BACKUP4K_MASK;
+    rp.phy_pwr_gating  = LDO_PHY_MASK | MIPI_PLL_DPHY_MASK | MIPI_TX_DPHY_MASK | MIPI_RX_DPHY_MASK;
+    rp.ip_clock_gating = MIPI_DSI_MASK | CDC200_MASK | MIPI_CSI_MASK | CAMERA_MASK | LP_PERIPH_MASK | NPU_HE_MASK | NPU_HP_MASK;
+    rp.power_domains   = PD_VBAT_AON_MASK | PD_SSE700_AON_MASK | PD_SYST_MASK | PD_SESS_MASK | PD_DBSS_MASK;
+    rp.aon_clk_src     = CLK_SRC_LFXO;
+    rp.run_clk_src     = CLK_SRC_PLL;
+    rp.scaled_clk_freq = SCALED_FREQ_XO_HIGH_DIV_38_4_MHZ;
+    rp.cpu_clk_freq    = CLOCK_FREQUENCY_400MHZ;
+    rp.vdd_ioflex_3V3  = IOFLEX_LEVEL_1V8;
+    g_se_rc  = SERVICES_set_run_cfg(se_services_s_handle, &rp, &err);
+    g_se_err = err;
+    printf("PARITY: se run_cfg rc=%lu err=%lu\r\n", (unsigned long)g_se_rc, (unsigned long)g_se_err);
+    /* Horloges de la D-PHY : 38,4 MHz (reference de la PLL) et 100 MHz (DSI/CSI), comme
+     * enable_peripheral_clocks() du SDK (third_party/mlek/platform/source/platform_drivers.c). */
+    uint32_t e1 = 0, e2 = 0;
+    g_clk_rc  = SERVICES_clocks_enable_clock(se_services_s_handle, CLKEN_HFOSC, true, &e1)
+              | SERVICES_clocks_enable_clock(se_services_s_handle, CLKEN_CLK_100M, true, &e2);
+    g_clk_err = e1 | e2;
+    printf("PARITY: se clocks rc=%lu err=%lu\r\n", (unsigned long)g_clk_rc, (unsigned long)g_clk_err);
+}
+
 int main(void)
 {
     if (stdout_init() != 0) { while (1) { } }
     printf("\r\nPARITY: start\r\n");
+    se_power_display();                                        /* avant Driver_CDC200.Initialize */
     for (uint32_t y = 0; y < H; y++) for (uint32_t x = 0; x < W; x++) lcd_image[y][x] = C_BG;
     SCB_CleanDCache_by_Addr((uint32_t *)lcd_image, (int32_t)sizeof lcd_image);
     int32_t r;
-    if ((r = Driver_CDC200.Initialize(cb)) != ARM_DRIVER_OK) { printf("PARITY: init failed %ld\r\n", (long)r); while (1) { } }
-    if ((r = Driver_CDC200.PowerControl(ARM_POWER_FULL)) != ARM_DRIVER_OK) { printf("PARITY: power failed %ld\r\n", (long)r); while (1) { } }
-    if ((r = Driver_CDC200.Control(CDC200_CONFIGURE_DISPLAY, (uint32_t)lcd_image)) != ARM_DRIVER_OK) { printf("PARITY: config failed %ld\r\n", (long)r); while (1) { } }
-    if ((r = Driver_CDC200.Start()) != ARM_DRIVER_OK) { printf("PARITY: start failed %ld\r\n", (long)r); while (1) { } }
+    /* Un echec de l'ecran n'arrete pas le test : les resultats restent sur UART4, en memoire
+     * (g_sig, g_pass, g_tests) et dans lcd_image, lisibles par J-Link. */
+    if ((r = Driver_CDC200.Initialize(cb)) != ARM_DRIVER_OK) printf("PARITY: init failed %ld\r\n", (long)r);
+    else if ((r = Driver_CDC200.PowerControl(ARM_POWER_FULL)) != ARM_DRIVER_OK) printf("PARITY: power failed %ld\r\n", (long)r);
+    else if ((r = Driver_CDC200.Control(CDC200_CONFIGURE_DISPLAY, (uint32_t)lcd_image)) != ARM_DRIVER_OK) printf("PARITY: config failed %ld\r\n", (long)r);
+    else if ((r = Driver_CDC200.Start()) != ARM_DRIVER_OK) printf("PARITY: start failed %ld\r\n", (long)r);
+    g_disp_rc = r;
     if (SysTick_Config(SystemCoreClock / 100u)) { while (1) { } }   /* tick 10 ms */
 
     line_draw(g_row++, "E7 TWIN PARITY HP", C_HEAD);
