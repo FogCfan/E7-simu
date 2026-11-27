@@ -67,11 +67,11 @@ def license_hint() -> str:
 INSTALL_HINT = install_hint()
 LICENSE_HINT = license_hint()
 
-#: Emplacements de Renode sous macOS hors PATH. Nom du binaire dans le bundle : à confirmer sur un Mac
-#: (je ne l'ai pas vu documenté localement ; ``Renode.app/Contents/MacOS/renode`` est l'hypothèse).
+#: Emplacements de Renode sous macOS hors PATH. Nom du binaire vérifié sur un Mac (2026-11-25, .dmg portable
+#: 1.17.0 osx-arm64) : ``Renode.app/Contents/MacOS/renode``, à côté de ``Renode.dll``.
 MACOS_RENODE_CANDIDATES: tuple[str, ...] = (
     "/Applications/Renode.app/Contents/MacOS/renode",
-    "/Applications/Renode.app/Contents/MacOS/Renode",  # à confirmer
+    "/Applications/Renode.app/Contents/MacOS/Renode",  # même fichier sur un volume insensible à la casse
 )
 
 # Sous-dossiers de tools/ (motifs glob, le plus récent gagne) et nom du binaire relatif.

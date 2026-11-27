@@ -65,15 +65,21 @@ Tout tourne en émulation Renode : rien n'est vérifié sur la carte réelle.
 
 Contrats entre modules : [`docs/INTERFACES.md`](docs/INTERFACES.md) · feuille de route : [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
-## macOS (non vérifié sur Mac)
+## macOS (Apple Silicon : vérifié)
 
-Portage en cours, aucun Mac n'a encore servi à le tester. Ce qui suit vient de l'audit de [`docs/MACOS.md`](docs/MACOS.md).
+Vérifié sur un Mac Apple Silicon (2026-11-25 et 2026-11-27) : installation des outils, compilation de tous les exemples, Renode en natif arm64 et suite de tests. Mac Intel : non vérifié, et ni Arm (GCC 14.3) ni Renode (1.17.0) n'y publient d'archive (voir [`docs/MACOS.md`](docs/MACOS.md)).
 
-- Installation : `python3 -m pip install -e ".[dev]"` à la place de `py -3.14`.
-- Lanceur : `E7Twin.command` à la racine, pendant de `E7Twin.cmd`. Une fois, dans le Terminal : `chmod +x E7Twin.command`.
-- Il lance `python3 -m e7twin.cli serve` et ouvre http://127.0.0.1:8000 dès que le port écoute.
-- L'installation des outils (`scripts/install_tools.sh`) n'existe pas encore ; elle arrive bientôt. Renode sous macOS reste à valider (voir `E7TWIN_RENODE` dans l'audit).
-- Détails, points ouverts et ce qui reste à tester sur Mac : [`docs/MACOS.md`](docs/MACOS.md).
+```bash
+python3 -m venv .venv && source .venv/bin/activate   # le python3 de Homebrew refuse « pip install » hors venv (PEP 668)
+pip install -e ".[dev]" ninja             # ninja : requis par cbuild, absent de l'installeur
+bash scripts/install_tools.sh             # GCC 14.3, CMSIS-Toolbox 2.12.0, Renode 1.17.0 (.dmg), template ; s'arrête sur les licences des packs
+bash scripts/install_tools.sh --accept-pack-licenses   # après lecture des licences (tools/packs/.Download/)
+e7twin doctor
+```
+
+- CMake ≥ 3.27 dans le `PATH` (par exemple `brew install cmake`).
+- Lanceur : `E7Twin.command` à la racine (pendant de `E7Twin.cmd`), qui prend `.venv/bin/python` s'il existe. Une fois : `chmod +x E7Twin.command`.
+- Détails et points encore ouverts : [`docs/MACOS.md`](docs/MACOS.md).
 
 ## La carte modélisée
 

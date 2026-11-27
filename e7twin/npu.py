@@ -221,8 +221,13 @@ def vela_python() -> str | None:
         cand = REPO_ROOT / "tools" / "vela-venv" / rel
         if cand.exists():
             return str(cand)
-    if importlib.util.find_spec("ethosu.vela") is not None:
-        return sys.executable
+    try:
+        # find_spec("ethosu.vela") importe le paquet parent : sans `ethosu` installé, il lève
+        # ModuleNotFoundError au lieu de rendre None (vu sous macOS, Python 3.14).
+        if importlib.util.find_spec("ethosu.vela") is not None:
+            return sys.executable
+    except (ModuleNotFoundError, ValueError):
+        pass
     return None
 
 
