@@ -4,6 +4,7 @@
 #include <string.h>
 #include CMSIS_device_header
 #include "Driver_CDC200.h"
+#include "se_services_port.h"   /* services du Secure Enclave (alimentation de l'ecran sur la carte) */
 
 #if defined(RTE_CMSIS_Compiler_STDOUT_Custom)
 #include "retarget_stdout.h"
@@ -12,8 +13,8 @@
 
 /* E7 Twin - affichage HP : CDC200 -> DSI -> panneau ILI9806E 480x800 RGB565 (parametres de RTE_Device.h).
  * Image : fond en degrade + barre blanche de 40 lignes qui descend de 40 lignes toutes les 500 ms.
- * UART4 : "DISPLAY frame N" a chaque image. Pas de verification matérielle : demo du template Alif (demo_cdc200.c)
- * + animation ajoutee. */
+ * UART4 : "DISPLAY frame N" a chaque image. Demo du template Alif (demo_cdc200.c) + animation ajoutee.
+ * Pas encore verifie sur carte ; l'alimentation de l'ecran par le SE l'est (voir parity_hp). */
 #if RTE_CDC200_PIXEL_FORMAT != 2
 #error "display_hp attend RTE_CDC200_PIXEL_FORMAT == 2 (RGB565)"
 #endif
@@ -36,10 +37,41 @@ static void fill(uint32_t y0, uint32_t n, int bar)
     SCB_CleanDCache_by_Addr((uint32_t *)&lcd_image[y0][0], (int32_t)(n * W * 2u));
 }
 
+/* Sur la carte, la D-PHY MIPI et les horloges DSI/CDC200 sont coupees tant que l'application
+ * ne les demande pas au Secure Enclave : sans cela, Driver_CDC200.Initialize rend -1 (PLL D-PHY non verrouillee).
+ * Meme sequence que parity_hp (verifiee sur carte le 2026-11-25), reprise du SDK du porteur
+ * (third_party/mlek/platform/source/platform_drivers.c, cas E7 HP), plus PD_DBSS pour garder la J-Link.
+ * Le simulateur n'a pas de SE : les appels y expirent, on continue. */
+static void se_power_display(void)
+{
+    run_profile_t rp = {0};
+    uint32_t rc, err = 0, e1 = 0, e2 = 0;
+    se_services_port_init();
+    rp.dcdc_mode       = DCDC_MODE_PWM;
+    rp.dcdc_voltage    = DCDC_VOUT_0825;
+    rp.memory_blocks   = SERAM_MASK | SRAM0_MASK | SRAM1_MASK | MRAM_MASK | FWRAM_MASK | BACKUP4K_MASK;
+    rp.phy_pwr_gating  = LDO_PHY_MASK | MIPI_PLL_DPHY_MASK | MIPI_TX_DPHY_MASK | MIPI_RX_DPHY_MASK;
+    rp.ip_clock_gating = MIPI_DSI_MASK | CDC200_MASK | MIPI_CSI_MASK | CAMERA_MASK | LP_PERIPH_MASK | NPU_HE_MASK | NPU_HP_MASK;
+    rp.power_domains   = PD_VBAT_AON_MASK | PD_SSE700_AON_MASK | PD_SYST_MASK | PD_SESS_MASK | PD_DBSS_MASK;
+    rp.aon_clk_src     = CLK_SRC_LFXO;
+    rp.run_clk_src     = CLK_SRC_PLL;
+    rp.scaled_clk_freq = SCALED_FREQ_XO_HIGH_DIV_38_4_MHZ;
+    rp.cpu_clk_freq    = CLOCK_FREQUENCY_400MHZ;
+    rp.vdd_ioflex_3V3  = IOFLEX_LEVEL_1V8;
+    rc = SERVICES_set_run_cfg(se_services_s_handle, &rp, &err);
+    printf("DISPLAY: se run_cfg rc=%lu err=%lu\r\n", (unsigned long)rc, (unsigned long)err);
+    /* Horloges de la D-PHY : 38,4 MHz (reference de la PLL) et 100 MHz (DSI/CSI), comme
+     * enable_peripheral_clocks() du SDK. */
+    rc = SERVICES_clocks_enable_clock(se_services_s_handle, CLKEN_HFOSC, true, &e1)
+       | SERVICES_clocks_enable_clock(se_services_s_handle, CLKEN_CLK_100M, true, &e2);
+    printf("DISPLAY: se clocks rc=%lu err=%lu\r\n", (unsigned long)rc, (unsigned long)(e1 | e2));
+}
+
 int main(void)
 {
     if (stdout_init() != 0) { while (1) { } }
     printf("\r\nDISPLAY: start\r\n");
+    se_power_display();                                           /* avant Driver_CDC200.Initialize */
     fill(0, H, 0);
     int32_t r;
     if ((r = Driver_CDC200.Initialize(cb)) != ARM_DRIVER_OK) { printf("DISPLAY: init failed %ld\r\n", (long)r); while (1) { } }
