@@ -93,7 +93,7 @@ def test_doctor_bare_machine_reports_everything_missing(bare):
     # Tout est requis sauf .NET (le Renode portable embarque son runtime).
     assert _by_name(results)[".NET (runtime Renode)"]["required"] is False
     assert "arm-none-eabi-gcc" in toolchain.missing_required(results)
-    assert "install_tools.ps1" in _by_name(results)["cbuild"]["hint"]
+    assert toolchain.install_hint() in _by_name(results)["cbuild"]["hint"]  # .ps1 ou .sh selon l'OS
 
 
 def test_doctor_finds_pinned_tools_in_tools_dir(bare, monkeypatch):
@@ -145,8 +145,8 @@ def test_pack_downloaded_but_license_not_accepted(bare):
     res = _by_name(toolchain.doctor())
     alif = res["pack AlifSemiconductor::Ensemble"]
     assert alif["found"] is False
-    assert "AcceptPackLicenses" in alif["hint"]
-    assert "AcceptPackLicenses" not in res["pack ARM::CMSIS"]["hint"]
+    assert alif["hint"] == toolchain.license_hint()  # -AcceptPackLicenses ou --accept-pack-licenses selon l'OS
+    assert res["pack ARM::CMSIS"]["hint"] != toolchain.license_hint()
 
 
 def test_pack_root_resolution(bare, monkeypatch, tmp_path):

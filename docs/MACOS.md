@@ -1,4 +1,27 @@
-# Portage macOS (Intel et Apple Silicon) : audit statique
+# Portage macOS (Intel et Apple Silicon)
+
+## 0. Vérifié sur un Mac Apple Silicon (2026-11-25 et 2026-11-27)
+
+Mac Apple Silicon (arm64), Python 3.14 de Homebrew dans un venv, CMake 4.4 de Homebrew. Les sections 1 à 5 plus bas sont l'audit statique d'origine, gardé pour l'historique ; ce tableau prime.
+
+| Point | Résultat |
+|---|---|
+| `pip install -e ".[dev]"` | OK **dans un venv** : le `python3` de Homebrew refuse `pip install` hors venv (PEP 668). |
+| `scripts/install_tools.sh` | Exécuté dans un `tools/` vide : GCC 14.3.rel1, CMSIS-Toolbox 2.12.0 et Renode 1.17.0 installés, empreintes SHA-256 conformes, relance idempotente ; template au commit épinglé ; étape des packs sans `--accept-pack-licenses` : licences extraites, code 2. L'ajout des packs avec `--accept-pack-licenses` n'a pas été relancé par le script (même commande `cpackget` passée à la main le 2026-11-25). |
+| Renode 1.17.0 | Asset `renode-1.17.0.osx-arm64-portable.dmg` : **natif arm64**, runtime .NET 8 embarqué, pas de Rosetta. Binaire : `Renode.app/Contents/MacOS/renode` (l'hypothèse de `toolchain.py` était juste). Mode headless et monitor OK. |
+| Quarantaine Gatekeeper | Les archives téléchargées par `curl` ne la portent pas (seulement `com.apple.provenance`) ; le `xattr -dr` du script reste par précaution. |
+| `ninja` | Pas installé par le script : `pip install ninja` dans le venv (ou `brew install ninja`). Il doit être dans le `PATH` (venv activé). |
+| `e7twin doctor` | Tout OK avec les outils du script. |
+| `examples/build_all.py` | Tous les exemples compilent (GCC 14.3.rel1 ; la 13.3.rel1 darwin-arm64 marche aussi). |
+| `parity_hp` dans Renode | `SIG E1C0E658  10/10`, la référence de `examples/README.md`. |
+| `pytest` (outils de `install_tools.sh`) | 329 réussis, 0 échec. Les tests sautés faute d'ELF ou de template au moment de la collecte passent ensuite ; restent sautés : ELF du spike (`build/spike/`) non compilés, et `ethos-u-vela` absent. |
+| `E7Twin.command` | Lancé avec un `PATH` sans venv : prend `.venv/bin/python`, ouvre le navigateur une fois le port 8000 à l'écoute, arrêt propre par `/api/shutdown`. |
+
+**Mac Intel : non vérifié, et sans archive officielle pour deux outils** (relevé le 2026-11-27) : Arm ne publie pas `darwin-x86_64` en 14.3.rel1 (404 ; la 14.2.rel1 existe), et Renode 1.17.0 n'a d'asset macOS qu'en arm64. Le script le signale et demande une installation à la main (`E7TWIN_RENODE` pour Renode).
+
+Corrigé au passage : `npu.vela_python()` plantait (`ModuleNotFoundError`) quand le paquet `ethosu` est absent, ce qui faisait échouer la collecte de `tests/test_npu.py` ; deux tests de `tests/test_toolchain.py` attendaient les indications Windows quel que soit l'OS.
+
+## Audit statique d'origine (2026-11-22)
 
 Audit du 2026-11-22, **sans exécution sur Mac** (aucun Mac disponible) et sans modification de code : tout ce qui suit vient de recherches `Grep` et de lectures ciblées. Les numéros de ligne sont ceux du dépôt à cette date.
 
